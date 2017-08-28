@@ -6,6 +6,7 @@ type File struct {
 	Vars    []Variable
 	//Constants []
 	//Structures []
-	//Interfaces []
-	//Functions []
+	Interfaces []Interface
+	Functions  []Function
+	Methods    []Method
 }

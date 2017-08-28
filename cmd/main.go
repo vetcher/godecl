@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	"go-file-struct"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+
+	"github.com/vetcher/godecl"
 )
 
 func main() {
@@ -22,5 +23,5 @@ func main() {
 		panic(fmt.Errorf("error when parse file: %v", err))
 	}
 	ast.Print(fset, f)
-	go_file_struct.ParseFile(f)
+	godecl.ParseFile(f)
 }

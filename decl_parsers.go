@@ -1,4 +1,4 @@
-package go_file_struct
+package godecl
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 )
 
 func parseDeclaration(decl ast.Decl, file *types.File) error {
-	var onceVars map[string]struct{}
+	onceVars := make(map[string]struct{})
 	switch d := decl.(type) {
 	case *ast.GenDecl:
 		switch d.Tok {
@@ -26,7 +26,23 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 			}
 			file.Vars = append(file.Vars, vars...)
 		case token.TYPE:
-
+			typeSpec := d.Specs[0].(*ast.TypeSpec)
+			switch t := typeSpec.Type.(type) {
+			case *ast.InterfaceType:
+				interfaceType := types.Interface{
+					Base: types.Base{
+						Name: typeSpec.Name.Name,
+						Docs: parseComments(d.Doc),
+					},
+				}
+				methods, err := parseInterfaceMethods(t, file)
+				if err != nil {
+					return err
+				}
+				interfaceType.Methods = methods
+			case *ast.StructType:
+				//parseStruct(t, file)
+			}
 		}
 	}
 	return nil
@@ -119,4 +135,34 @@ func parseByValue(tt *types.Type, spec interface{}, file *types.File) error {
 		}
 	}
 	return nil
+}
+
+func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File) ([]types.Function, error) {
+	var fns []types.Function
+	for _, method := range ifaceType.Methods.List {
+		fn, err := parseFunction(method, file)
+		if err != nil {
+			return nil, err
+		}
+		fns = append(fns, fn)
+	}
+	return fns, nil
+}
+
+func parseFunction(funcField *ast.Field, file *types.File) (types.Function, error) {
+	fn := types.Function{
+		Base: types.Base{
+			Name: funcField.Names[0].Name,
+			Docs: parseComments(funcField.Doc),
+		},
+	}
+	funcType := funcField.Type.(*ast.FuncType)
+
+	return fn, nil
+}
+
+func parseParams(fields *ast.FieldList, file types.File) ([]types.Variable, error) {
+	for _, field := range fields.List {
+
+	}
 }

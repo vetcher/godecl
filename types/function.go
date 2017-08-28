@@ -5,3 +5,8 @@ type Function struct {
 	Args    []Variable
 	Results []Variable
 }
+
+type Method struct {
+	Function
+	Receiver Type
+}

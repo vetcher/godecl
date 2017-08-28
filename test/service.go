@@ -37,3 +37,7 @@ type StringServices interface {
 	// Get docs
 	Get(a, b []*string, _ error) (i, j int, writer io.Writer) // inline comment
 }
+
+type OMG struct {
+	i string
+}
