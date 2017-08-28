@@ -2,11 +2,12 @@ package go_file_struct
 
 import (
 	"errors"
-	"go-file-struct/types"
 	"go/ast"
 	"go/token"
 	"path"
 	"strings"
+
+	"github.com/vetcher/godecl/types"
 )
 
 var (

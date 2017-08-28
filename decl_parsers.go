@@ -2,9 +2,10 @@ package go_file_struct
 
 import (
 	"fmt"
-	"go-file-struct/types"
 	"go/ast"
 	"go/token"
+
+	"github.com/vetcher/godecl/types"
 )
 
 func parseDeclaration(decl ast.Decl, file *types.File) error {
