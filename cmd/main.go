@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"encoding/json"
+
 	"github.com/vetcher/godecl"
 )
 
@@ -23,5 +25,13 @@ func main() {
 		panic(fmt.Errorf("error when parse file: %v", err))
 	}
 	ast.Print(fset, f)
-	godecl.ParseFile(f)
+	file, err := godecl.ParseFile(f)
+	if err != nil {
+		fmt.Println(err)
+	}
+	t, err := json.Marshal(file)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(string(t))
 }

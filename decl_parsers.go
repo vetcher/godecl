@@ -40,6 +40,7 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 					return err
 				}
 				interfaceType.Methods = methods
+				file.Interfaces = append(file.Interfaces, interfaceType)
 			case *ast.StructType:
 				//parseStruct(t, file)
 			}
@@ -137,8 +138,8 @@ func parseByValue(tt *types.Type, spec interface{}, file *types.File) error {
 	return nil
 }
 
-func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File) ([]types.Function, error) {
-	var fns []types.Function
+func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File) ([]*types.Function, error) {
+	var fns []*types.Function
 	for _, method := range ifaceType.Methods.List {
 		fn, err := parseFunction(method, file)
 		if err != nil {
@@ -149,20 +150,57 @@ func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File) ([]ty
 	return fns, nil
 }
 
-func parseFunction(funcField *ast.Field, file *types.File) (types.Function, error) {
-	fn := types.Function{
+func parseFunction(funcField *ast.Field, file *types.File) (*types.Function, error) {
+	fn := &types.Function{
 		Base: types.Base{
 			Name: funcField.Names[0].Name,
 			Docs: parseComments(funcField.Doc),
 		},
 	}
 	funcType := funcField.Type.(*ast.FuncType)
-
+	args, err := parseParams(funcType.Params, file)
+	if err != nil {
+		return nil, err
+	}
+	fn.Args = args
+	results, err := parseParams(funcType.Results, file)
+	if err != nil {
+		return nil, err
+	}
+	fn.Results = results
 	return fn, nil
 }
 
-func parseParams(fields *ast.FieldList, file types.File) ([]types.Variable, error) {
+func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, error) {
+	var vars []types.Variable
 	for _, field := range fields.List {
-
+		if field.Type == nil {
+			return nil, fmt.Errorf("param's type is nil %d:%d", field.Pos(), field.End())
+		}
+		t := types.Type{}
+		err := parseByType(&t, field.Type, file)
+		if err != nil {
+			return nil, err
+		}
+		docs := parseComments(field.Doc)
+		if len(field.Names) == 0 {
+			vars = append(vars, types.Variable{
+				Base: types.Base{
+					Docs: docs,
+				},
+				Type: t,
+			})
+		} else {
+			for _, name := range field.Names {
+				vars = append(vars, types.Variable{
+					Base: types.Base{
+						Name: name.Name,
+						Docs: docs,
+					},
+					Type: t,
+				})
+			}
+		}
 	}
+	return vars, nil
 }
