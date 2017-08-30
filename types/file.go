@@ -9,5 +9,5 @@ type File struct {
 	Interfaces []Interface // Contains `type Foo interface` declarations.
 	Structures []Struct    // Contains `type Foo struct` declarations.
 	Functions  []Function  // Contains `func Foo() {}` declarations.
-	Methods    []Method    // Contains `func (a A) Foo(b B) (c C) {}` declarations. // TODO
+	Methods    []Method    // Contains `func (a A) Foo(b B) (c C) {}` declarations.
 }

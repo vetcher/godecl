@@ -168,8 +168,43 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 				})
 			}
 		}
+	case *ast.FuncDecl:
+		fn := types.Function{
+			Base: types.Base{
+				Name: d.Name.Name,
+				Docs: parseComments(d.Doc),
+			},
+		}
+		err := parseFuncParamsAndResults(d.Type, &fn, file)
+		if err != nil {
+			return err
+		}
+		if d.Recv != nil {
+			rec, err := parseReceiver(d.Recv, file)
+			if err != nil {
+				return err
+			}
+			file.Methods = append(file.Methods, types.Method{
+				Function: fn,
+				Receiver: rec,
+			})
+		} else {
+			file.Functions = append(file.Functions, fn)
+		}
 	}
 	return nil
+}
+
+func parseReceiver(list *ast.FieldList, file *types.File) (t types.Variable, err error) {
+	recv, err := parseParams(list, file)
+	if err != nil {
+		return
+	}
+	if len(recv) != 0 {
+		return recv[0], nil
+	}
+	err = fmt.Errorf("reciever not found for %d:%d", list.Pos(), list.End())
+	return
 }
 
 func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable, err error) {
@@ -301,12 +336,14 @@ func parseByValue(tt *types.Type, spec interface{}, file *types.File) (err error
 // Collects and returns all interface methods.
 func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File) ([]*types.Function, error) {
 	var fns []*types.Function
-	for _, method := range ifaceType.Methods.List {
-		fn, err := parseFunction(method, file)
-		if err != nil {
-			return nil, err
+	if ifaceType.Methods != nil {
+		for _, method := range ifaceType.Methods.List {
+			fn, err := parseFunction(method, file)
+			if err != nil {
+				return nil, err
+			}
+			fns = append(fns, fn)
 		}
-		fns = append(fns, fn)
 	}
 	return fns, nil
 }
@@ -319,48 +356,58 @@ func parseFunction(funcField *ast.Field, file *types.File) (*types.Function, err
 		},
 	}
 	funcType := funcField.Type.(*ast.FuncType)
-	args, err := parseParams(funcType.Params, file)
+	err := parseFuncParamsAndResults(funcType, fn, file)
 	if err != nil {
 		return nil, err
+	}
+	return fn, nil
+}
+
+func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file *types.File) error {
+	args, err := parseParams(funcType.Params, file)
+	if err != nil {
+		return err
 	}
 	fn.Args = args
 	results, err := parseParams(funcType.Results, file)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	fn.Results = results
-	return fn, nil
+	return nil
 }
 
 // Collects and returns all args/results from function or fields from structure.
 func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, error) {
 	var vars []types.Variable
-	for _, field := range fields.List {
-		if field.Type == nil {
-			return nil, fmt.Errorf("param's type is nil %d:%d", field.Pos(), field.End())
-		}
-		t := types.Type{}
-		err := parseByType(&t, field.Type, file)
-		if err != nil {
-			return nil, err
-		}
-		docs := parseComments(field.Doc)
-		if len(field.Names) == 0 {
-			vars = append(vars, types.Variable{
-				Base: types.Base{
-					Docs: docs,
-				},
-				Type: t,
-			})
-		} else {
-			for _, name := range field.Names {
+	if fields != nil {
+		for _, field := range fields.List {
+			if field.Type == nil {
+				return nil, fmt.Errorf("param's type is nil %d:%d", field.Pos(), field.End())
+			}
+			t := types.Type{}
+			err := parseByType(&t, field.Type, file)
+			if err != nil {
+				return nil, err
+			}
+			docs := parseComments(field.Doc)
+			if len(field.Names) == 0 {
 				vars = append(vars, types.Variable{
 					Base: types.Base{
-						Name: name.Name,
 						Docs: docs,
 					},
 					Type: t,
 				})
+			} else {
+				for _, name := range field.Names {
+					vars = append(vars, types.Variable{
+						Base: types.Base{
+							Name: name.Name,
+							Docs: docs,
+						},
+						Type: t,
+					})
+				}
 			}
 		}
 	}

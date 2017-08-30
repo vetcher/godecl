@@ -8,5 +8,5 @@ type Function struct {
 
 type Method struct {
 	Function
-	Receiver Type
+	Receiver Variable
 }
