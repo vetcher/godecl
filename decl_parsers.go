@@ -5,6 +5,11 @@ import (
 	"go/ast"
 	"go/token"
 
+	"strconv"
+
+	"strings"
+
+	"github.com/fatih/structtag"
 	"github.com/vetcher/godecl/types"
 )
 
@@ -29,20 +34,29 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 			typeSpec := d.Specs[0].(*ast.TypeSpec)
 			switch t := typeSpec.Type.(type) {
 			case *ast.InterfaceType:
-				interfaceType := types.Interface{
-					Base: types.Base{
-						Name: typeSpec.Name.Name,
-						Docs: parseComments(d.Doc),
-					},
-				}
 				methods, err := parseInterfaceMethods(t, file)
 				if err != nil {
 					return err
 				}
-				interfaceType.Methods = methods
-				file.Interfaces = append(file.Interfaces, interfaceType)
+				file.Interfaces = append(file.Interfaces, types.Interface{
+					Base: types.Base{
+						Name: typeSpec.Name.Name,
+						Docs: parseComments(d.Doc),
+					},
+					Methods: methods,
+				})
 			case *ast.StructType:
-				//parseStruct(t, file)
+				strFields, err := parseStructFields(t, file)
+				if err != nil {
+					return err
+				}
+				file.Structures = append(file.Structures, types.Struct{
+					Base: types.Base{
+						Name: typeSpec.Name.Name,
+						Docs: parseComments(d.Doc),
+					},
+					Fields: strFields,
+				})
 			}
 		}
 	}
@@ -99,6 +113,7 @@ func parseByType(tt *types.Type, spec interface{}, file *types.File) error {
 		}
 	case *ast.ArrayType:
 		tt.IsArray = true
+		tt.Len = parseArrayLen(t)
 		err := parseByType(tt, t.Elt, file)
 		if err != nil {
 			return err
@@ -114,11 +129,27 @@ func parseByType(tt *types.Type, spec interface{}, file *types.File) error {
 			return err
 		}
 		tt.SetMap(key, value)
-		tt.IsCustom = true
 	default:
 		return ErrUnexpectedSpec
 	}
 	return nil
+}
+
+func parseArrayLen(t *ast.ArrayType) int {
+	if t == nil {
+		return 0
+	}
+	switch l := t.Len.(type) {
+	case *ast.Ellipsis:
+		return -1
+	case *ast.BasicLit:
+		if l.Kind == token.INT {
+			x, _ := strconv.Atoi(l.Value)
+			return x
+		}
+		return 0
+	}
+	return 0
 }
 
 func parseByValue(tt *types.Type, spec interface{}, file *types.File) error {
@@ -203,4 +234,38 @@ func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, err
 		}
 	}
 	return vars, nil
+}
+
+func parseTags(lit *ast.BasicLit) (tags map[string][]string, raw string) {
+	if lit == nil {
+		return
+	}
+	raw = lit.Value
+	str := strings.Trim(lit.Value, "`")
+	t, err := structtag.Parse(str)
+	if err != nil {
+		return
+	}
+	tags = make(map[string][]string)
+	for _, tag := range t.Tags() {
+		tags[tag.Key] = append([]string{tag.Name}, tag.Options...)
+	}
+	return
+}
+
+func parseStructFields(s *ast.StructType, file *types.File) ([]types.StructField, error) {
+	fields, err := parseParams(s.Fields, file)
+	if err != nil {
+		return nil, err
+	}
+	var strF []types.StructField
+	for i, f := range fields {
+		parsedTags, rawTags := parseTags(s.Fields.List[i].Tag)
+		strF = append(strF, types.StructField{
+			Variable: f,
+			Tags:     parsedTags,
+			RawTags:  rawTags,
+		})
+	}
+	return strF, nil
 }

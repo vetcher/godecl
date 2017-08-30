@@ -5,7 +5,7 @@ type File struct {
 	Imports []Import
 	Vars    []Variable
 	//Constants []
-	//Structures []
+	Structures []Struct
 	Interfaces []Interface
 	Functions  []Function
 	Methods    []Method
