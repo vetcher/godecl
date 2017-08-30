@@ -7,17 +7,17 @@ import (
 
 // Type contains type information. It can not carry too complex types, such as `struct{func(map[interface{}]string)}`.
 type Type struct {
-	Name      string
-	Import    *Import
-	IsPointer bool // True if type is pointer.
-	IsArray   bool // True if type is array/slice.
+	Name      string  `json:"name,omitempty"`
+	Import    *Import `json:"import,omitempty"`
+	IsPointer bool    `json:"is_pointer,omitempty"` // True if type is pointer.
+	IsArray   bool    `json:"is_array,omitempty"`   // True if type is array/slice.
 	// Capacity of array.
 	// 0 - array is slice or not a array at all.
 	// -1 - ... founded in declaration.
-	Len         int
-	IsCustom    bool       // True if Import != nil or type is interface.
-	IsMap       bool       // True if type is map.
-	IsInterface bool       // True if type is interface.
+	Len         int        `json:"len"`
+	IsCustom    bool       `json:"is_custom,omitempty"`    // True if Import != nil or type is interface.
+	IsMap       bool       `json:"is_map,omitempty"`       // True if type is map.
+	IsInterface bool       `json:"is_interface,omitempty"` // True if type is interface.
 	m           *mapType   // Hided field for carry map type. Use Map() to access.
 	i           *Interface // Hided field for carry interface type. Use Interface() to access.
 }

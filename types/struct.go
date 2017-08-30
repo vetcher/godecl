@@ -2,11 +2,11 @@ package types
 
 type StructField struct {
 	Variable
-	Tags    map[string][]string
-	RawTags string // Raw string from source.
+	Tags    map[string][]string `json:"tags,omitempty"`
+	RawTags string `json:"raw,omitempty"`// Raw string from source.
 }
 
 type Struct struct {
 	Base
-	Fields []StructField
+	Fields []StructField `json:"fields,omitempty"`
 }

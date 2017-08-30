@@ -2,11 +2,11 @@ package types
 
 type Function struct {
 	Base
-	Args    []Variable
-	Results []Variable
+	Args    []Variable `json:"args,omitempty"`
+	Results []Variable `json:"results,omitempty"`
 }
 
 type Method struct {
 	Function
-	Receiver Variable
+	Receiver Variable `json:"receiver,omitempty"`
 }
