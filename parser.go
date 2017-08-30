@@ -1,17 +1,114 @@
 package godecl
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
-
+	"path"
 	"strconv"
-
 	"strings"
 
 	"github.com/fatih/structtag"
 	"github.com/vetcher/godecl/types"
 )
+
+var (
+	ErrCouldNotResolvePackage  = errors.New("could not resolve package")
+	ErrNotUniquePackageAliases = errors.New("not unique package aliases")
+	ErrUnexpectedSpec          = errors.New("unexpected spec")
+)
+
+// Parses ast.File and return all top-level declarations.
+func ParseFile(file *ast.File) (*types.File, error) {
+	f := &types.File{
+		Base: types.Base{
+			Name: file.Name.Name,
+			Docs: parseComments(file.Doc),
+		},
+	}
+	imports, err := parseImports(file)
+	if err != nil {
+		return nil, err
+	}
+	f.Imports = imports
+	parseTopLevelDeclarations(file.Decls, f)
+	return f, nil
+}
+
+func parseComments(group *ast.CommentGroup) (comments []string) {
+	if group == nil {
+		return
+	}
+	for _, comment := range group.List {
+		comments = append(comments, comment.Text)
+	}
+	return
+}
+
+func parseTopLevelDeclarations(decls []ast.Decl, file *types.File) {
+	for i := range decls {
+		parseDeclaration(decls[i], file)
+	}
+}
+
+func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
+	for _, imp := range file.Imports {
+		if imp.Alias == alias {
+			return &imp, nil
+		}
+	}
+	// try to find by last package path
+	for _, imp := range file.Imports {
+		if alias == path.Base(imp.Package) {
+			return &imp, nil
+		}
+	}
+
+	return nil, ErrCouldNotResolvePackage
+}
+
+func parseImports(f *ast.File) ([]types.Import, error) {
+	for _, decl := range f.Decls {
+		decl, ok := decl.(*ast.GenDecl)
+		if !ok || decl.Tok != token.IMPORT {
+			continue
+		}
+
+		var imports []types.Import
+		var onceImport map[string]struct{}
+
+		for _, spec := range decl.Specs {
+			spec, ok := spec.(*ast.ImportSpec)
+			if !ok {
+				continue // if !ok then comment
+			}
+			alias := constructAliasName(spec)
+			if _, ok := onceImport[alias]; ok {
+				return nil, ErrNotUniquePackageAliases
+			}
+
+			imp := types.Import{
+				Alias:   alias,
+				Package: strings.Trim(spec.Path.Value, `"`),
+				Docs:    parseComments(spec.Doc),
+			}
+
+			imports = append(imports, imp)
+		}
+
+		return imports, nil
+	}
+
+	return nil, nil
+}
+
+func constructAliasName(spec *ast.ImportSpec) string {
+	if spec.Name != nil {
+		return spec.Name.Name
+	}
+	return path.Base(strings.Trim(spec.Path.Value, `"`))
+}
 
 func parseDeclaration(decl ast.Decl, file *types.File) error {
 	onceVars := make(map[string]struct{})
@@ -30,6 +127,18 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 				onceVars[variable.Name] = struct{}{}
 			}
 			file.Vars = append(file.Vars, vars...)
+		case token.CONST:
+			consts, err := parseVariables(d, file)
+			if err != nil {
+				return fmt.Errorf("parse variables %d:%d error: %v", d.Lparen, d.Rparen, err)
+			}
+			for _, variable := range consts {
+				if _, ok := onceVars[variable.Name]; ok {
+					return fmt.Errorf("duplicating variable %s", variable.Name)
+				}
+				onceVars[variable.Name] = struct{}{}
+			}
+			file.Constants = append(file.Constants, consts...)
 		case token.TYPE:
 			typeSpec := d.Specs[0].(*ast.TypeSpec)
 			switch t := typeSpec.Type.(type) {
@@ -94,13 +203,17 @@ func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable,
 	return
 }
 
-func parseByType(tt *types.Type, spec interface{}, file *types.File) error {
+// Fill provided types.Type for cases, when variable's type is provided.
+func parseByType(tt *types.Type, spec interface{}, file *types.File) (err error) {
 	switch t := spec.(type) {
 	case *ast.Ident:
 		tt.Name = t.Name
 	case *ast.SelectorExpr:
 		tt.Name = t.Sel.Name
-		tt.Import = findImportByAlias(file, t.X.(*ast.Ident).Name)
+		tt.Import, err = findImportByAlias(file, t.X.(*ast.Ident).Name)
+		if err != nil {
+			return
+		}
 		tt.IsCustom = true
 		if tt.Import == nil {
 			return fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
@@ -129,6 +242,18 @@ func parseByType(tt *types.Type, spec interface{}, file *types.File) error {
 			return err
 		}
 		tt.SetMap(key, value)
+	case *ast.InterfaceType:
+		methods, err := parseInterfaceMethods(t, file)
+		if err != nil {
+			return err
+		}
+		tt.IsCustom = true
+		tt.SetInterface(types.Interface{
+			Base: types.Base{
+				Name: tt.Name,
+			},
+			Methods: methods,
+		})
 	default:
 		return ErrUnexpectedSpec
 	}
@@ -152,7 +277,8 @@ func parseArrayLen(t *ast.ArrayType) int {
 	return 0
 }
 
-func parseByValue(tt *types.Type, spec interface{}, file *types.File) error {
+// Fill provided types.Type for cases, when variable's value is provided.
+func parseByValue(tt *types.Type, spec interface{}, file *types.File) (err error) {
 	switch t := spec.(type) {
 	case *ast.BasicLit:
 		tt.Name = t.Kind.String()
@@ -160,7 +286,10 @@ func parseByValue(tt *types.Type, spec interface{}, file *types.File) error {
 		return parseByValue(tt, t.Type, file)
 	case *ast.SelectorExpr:
 		tt.Name = t.Sel.Name
-		tt.Import = findImportByAlias(file, t.X.(*ast.Ident).Name)
+		tt.Import, err = findImportByAlias(file, t.X.(*ast.Ident).Name)
+		if err != nil {
+			return
+		}
 		tt.IsCustom = true
 		if tt.Import == nil {
 			return fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
@@ -169,6 +298,7 @@ func parseByValue(tt *types.Type, spec interface{}, file *types.File) error {
 	return nil
 }
 
+// Collects and returns all interface methods.
 func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File) ([]*types.Function, error) {
 	var fns []*types.Function
 	for _, method := range ifaceType.Methods.List {
@@ -202,6 +332,7 @@ func parseFunction(funcField *ast.Field, file *types.File) (*types.Function, err
 	return fn, nil
 }
 
+// Collects and returns all args/results from function or fields from structure.
 func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, error) {
 	var vars []types.Variable
 	for _, field := range fields.List {
