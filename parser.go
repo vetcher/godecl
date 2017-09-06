@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	ErrCouldNotResolvePackage  = errors.New("could not resolve package")
-	ErrNotUniquePackageAliases = errors.New("not unique package aliases")
-	ErrUnexpectedSpec          = errors.New("unexpected spec")
+	ErrCouldNotResolvePackage = errors.New("could not resolve package")
+	ErrNotUniquePackageAlias  = errors.New("not unique package alias")
+	ErrUnexpectedSpec         = errors.New("unexpected spec")
 )
 
 // Parses ast.File and return all top-level declarations.
@@ -32,7 +32,10 @@ func ParseFile(file *ast.File) (*types.File, error) {
 		return nil, err
 	}
 	f.Imports = imports
-	parseTopLevelDeclarations(file.Decls, f)
+	err = parseTopLevelDeclarations(file.Decls, f)
+	if err != nil {
+		return nil, err
+	}
 	return f, nil
 }
 
@@ -46,10 +49,14 @@ func parseComments(group *ast.CommentGroup) (comments []string) {
 	return
 }
 
-func parseTopLevelDeclarations(decls []ast.Decl, file *types.File) {
+func parseTopLevelDeclarations(decls []ast.Decl, file *types.File) error {
 	for i := range decls {
-		parseDeclaration(decls[i], file)
+		err := parseDeclaration(decls[i], file)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
@@ -65,7 +72,7 @@ func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
 		}
 	}
 
-	return nil, ErrCouldNotResolvePackage
+	return nil, fmt.Errorf("%v: %s", ErrCouldNotResolvePackage, alias)
 }
 
 func parseImports(f *ast.File) ([]types.Import, error) {
@@ -85,7 +92,7 @@ func parseImports(f *ast.File) ([]types.Import, error) {
 			}
 			alias := constructAliasName(spec)
 			if _, ok := onceImport[alias]; ok {
-				return nil, ErrNotUniquePackageAliases
+				return nil, fmt.Errorf("%v: %s", ErrNotUniquePackageAlias, alias)
 			}
 
 			imp := types.Import{
@@ -157,7 +164,7 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 			case *ast.StructType:
 				strFields, err := parseStructFields(t, file)
 				if err != nil {
-					return err
+					return fmt.Errorf("%s: can't parse struct fields: %v", typeSpec.Name.Name, err)
 				}
 				file.Structures = append(file.Structures, types.Struct{
 					Base: types.Base{
@@ -175,9 +182,10 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 				Docs: parseComments(d.Doc),
 			},
 		}
+		fmt.Println("YEY")
 		err := parseFuncParamsAndResults(d.Type, &fn, file)
 		if err != nil {
-			return err
+			return fmt.Errorf("parse func %s error: %v", fn.Name, err)
 		}
 		if d.Recv != nil {
 			rec, err := parseReceiver(d.Recv, file)
@@ -191,6 +199,7 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 		} else {
 			file.Functions = append(file.Functions, fn)
 		}
+		fmt.Println(len(file.Functions))
 	}
 	return nil
 }
@@ -223,12 +232,12 @@ func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable,
 		if spec.Type != nil {
 			err := parseByType(&valType, spec.Type, file)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("can't parse type: %v", err)
 			}
 		} else {
 			err := parseByValue(&valType, spec.Values[i], file)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("can't parse type: %v", err)
 			}
 		}
 
@@ -247,7 +256,7 @@ func parseByType(tt *types.Type, spec interface{}, file *types.File) (err error)
 		tt.Name = t.Sel.Name
 		tt.Import, err = findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil {
-			return
+			return fmt.Errorf("%s: %v", tt.Name, err)
 		}
 		tt.IsCustom = true
 		if tt.Import == nil {
@@ -323,7 +332,7 @@ func parseByValue(tt *types.Type, spec interface{}, file *types.File) (err error
 		tt.Name = t.Sel.Name
 		tt.Import, err = findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil {
-			return
+			return fmt.Errorf("%s: %v", tt.Name, err)
 		}
 		tt.IsCustom = true
 		if tt.Import == nil {
@@ -366,12 +375,12 @@ func parseFunction(funcField *ast.Field, file *types.File) (*types.Function, err
 func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file *types.File) error {
 	args, err := parseParams(funcType.Params, file)
 	if err != nil {
-		return err
+		return fmt.Errorf("can't parse args: %v", err)
 	}
 	fn.Args = args
 	results, err := parseParams(funcType.Results, file)
 	if err != nil {
-		return err
+		return fmt.Errorf("can't parse results: %v", err)
 	}
 	fn.Results = results
 	return nil
@@ -388,7 +397,7 @@ func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, err
 			t := types.Type{}
 			err := parseByType(&t, field.Type, file)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("wrong type: %v", err)
 			}
 			docs := parseComments(field.Doc)
 			if len(field.Names) == 0 {
