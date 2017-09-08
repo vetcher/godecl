@@ -182,7 +182,6 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 				Docs: parseComments(d.Doc),
 			},
 		}
-		fmt.Println("YEY")
 		err := parseFuncParamsAndResults(d.Type, &fn, file)
 		if err != nil {
 			return fmt.Errorf("parse func %s error: %v", fn.Name, err)
@@ -199,7 +198,6 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 		} else {
 			file.Functions = append(file.Functions, fn)
 		}
-		fmt.Println(len(file.Functions))
 	}
 	return nil
 }
