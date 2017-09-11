@@ -29,7 +29,7 @@ func (t *Type) Map() *mapType {
 	panic("not a map type")
 }
 
-func (t *Type) String() string {
+func (t Type) String() string {
 	str := ""
 	if t.IsArray {
 		str += "["
@@ -53,6 +53,10 @@ func (t *Type) String() string {
 		str += t.Import.Alias + "."
 	}
 	return str + t.Name
+}
+
+func (t Type) GoString() string {
+	return t.String()
 }
 
 func (t *Type) SetMap(key, value Type) {
