@@ -36,6 +36,13 @@ func ParseFile(file *ast.File) (*types.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	for i := range f.Methods {
+		structure, err := findStructByMethod(f, &f.Methods[i])
+		if err != nil {
+			return nil, err
+		}
+		structure.Methods = append(structure.Methods, &f.Methods[i])
+	}
 	return f, nil
 }
 
@@ -57,22 +64,6 @@ func parseTopLevelDeclarations(decls []ast.Decl, file *types.File) error {
 		}
 	}
 	return nil
-}
-
-func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
-	for _, imp := range file.Imports {
-		if imp.Alias == alias {
-			return &imp, nil
-		}
-	}
-	// try to find by last package path
-	for _, imp := range file.Imports {
-		if alias == path.Base(imp.Package) {
-			return &imp, nil
-		}
-	}
-
-	return nil, fmt.Errorf("%v: %s", ErrCouldNotResolvePackage, alias)
 }
 
 func parseImports(f *ast.File) ([]types.Import, error) {
@@ -453,4 +444,33 @@ func parseStructFields(s *ast.StructType, file *types.File) ([]types.StructField
 		})
 	}
 	return strF, nil
+}
+
+func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
+	for _, imp := range file.Imports {
+		if imp.Alias == alias {
+			return &imp, nil
+		}
+	}
+	// try to find by last package path
+	for _, imp := range file.Imports {
+		if alias == path.Base(imp.Package) {
+			return &imp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%v: %s", ErrCouldNotResolvePackage, alias)
+}
+
+func findStructByMethod(file *types.File, method *types.Method) (*types.Struct, error) {
+	recType := method.Receiver.Type
+	if recType.Import != nil || recType.IsInterface || recType.IsMap || recType.IsCustom || recType.IsArray {
+		return nil, fmt.Errorf("%s has not common reciever", method.String())
+	}
+	for _, structure := range file.Structures {
+		if structure.Name == recType.Name {
+			return &structure, nil
+		}
+	}
+	return nil, nil
 }
