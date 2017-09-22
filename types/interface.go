@@ -13,7 +13,7 @@ type Interface struct {
 func (i Interface) String() string {
 	var methods []string
 	for _, m := range i.Methods {
-		methods = append(methods, m.FuncStr())
+		methods = append(methods, m.funcStr())
 	}
 	return fmt.Sprintf("type %s interface {\n\t%s\n}", i.Name, strings.Join(methods, "\n\t"))
 }

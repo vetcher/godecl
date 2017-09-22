@@ -16,7 +16,7 @@ type Method struct {
 	Receiver Variable `json:"receiver,omitempty"`
 }
 
-func (f Function) FuncStr() string {
+func (f Function) funcStr() string {
 	var args, results []string
 	for _, arg := range f.Args {
 		args = append(args, arg.String())
@@ -28,7 +28,7 @@ func (f Function) FuncStr() string {
 }
 
 func (f Function) String() string {
-	return "func " + f.FuncStr()
+	return "func " + f.funcStr()
 }
 
 func (f Function) GoString() string {
@@ -36,7 +36,7 @@ func (f Function) GoString() string {
 }
 
 func (f Method) String() string {
-	return fmt.Sprintf("func (%s) %s", f.Receiver.String(), f.FuncStr())
+	return fmt.Sprintf("func (%s) %s", f.Receiver.String(), f.funcStr())
 }
 
 func (f Method) GoString() string {

@@ -1,10 +1,4 @@
-/*
-here are the docs
-f
-sadas
-*/
-// wtf
-package stringsvc
+package test
 
 // import comment
 import (
@@ -24,20 +18,15 @@ const l = "l"
 
 // interface docs
 type StringService interface {
-	// inside interface docs
-
-	// Get docs
 	Get(a, b []*string, _ error) (int, int) // inline comment
+	Post()
 }
 
-//hfsdfjsd
 type StringServices interface {
-	// inside interface docs
-
-	// Get docs
 	Get(a, b []*string, _ error) (i, j int, writer io.Writer) // inline comment
 }
 
 type OMG struct {
-	i string
+	i string `json:"i,j"xml:"i,k"gorm:"dasdas,f"`
+	j []int
 }

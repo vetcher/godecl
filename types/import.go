@@ -3,13 +3,12 @@ package types
 import "fmt"
 
 type Import struct {
-	Docs    []string `json:"docs,omitempty"`
-	Package string   `json:"package,omitempty"`
-	Alias   string   `json:"alias,omitempty"`
+	Base
+	Package string `json:"package,omitempty"`
 }
 
 func (i Import) String() string {
-	return fmt.Sprintf("%s \"%s\"", i.Alias, i.Package)
+	return fmt.Sprintf("%s \"%s\"", i.Name, i.Package)
 }
 
 func (i Import) GoString() string {

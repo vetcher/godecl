@@ -15,7 +15,6 @@ import (
 
 var (
 	ErrCouldNotResolvePackage = errors.New("could not resolve package")
-	ErrNotUniquePackageAlias  = errors.New("not unique package alias")
 	ErrUnexpectedSpec         = errors.New("unexpected spec")
 )
 
@@ -27,12 +26,7 @@ func ParseFile(file *ast.File) (*types.File, error) {
 			Docs: parseComments(file.Doc),
 		},
 	}
-	imports, err := parseImports(file)
-	if err != nil {
-		return nil, err
-	}
-	f.Imports = imports
-	err = parseTopLevelDeclarations(file.Decls, f)
+	err := parseTopLevelDeclarations(file.Decls, f)
 	if err != nil {
 		return nil, err
 	}
@@ -66,41 +60,6 @@ func parseTopLevelDeclarations(decls []ast.Decl, file *types.File) error {
 	return nil
 }
 
-func parseImports(f *ast.File) ([]types.Import, error) {
-	for _, decl := range f.Decls {
-		decl, ok := decl.(*ast.GenDecl)
-		if !ok || decl.Tok != token.IMPORT {
-			continue
-		}
-
-		var imports []types.Import
-		var onceImport map[string]struct{}
-
-		for _, spec := range decl.Specs {
-			spec, ok := spec.(*ast.ImportSpec)
-			if !ok {
-				continue // if !ok then comment
-			}
-			alias := constructAliasName(spec)
-			if _, ok := onceImport[alias]; ok {
-				return nil, fmt.Errorf("%v: %s", ErrNotUniquePackageAlias, alias)
-			}
-
-			imp := types.Import{
-				Alias:   alias,
-				Package: strings.Trim(spec.Path.Value, `"`),
-				Docs:    parseComments(spec.Doc),
-			}
-
-			imports = append(imports, imp)
-		}
-
-		return imports, nil
-	}
-
-	return nil, nil
-}
-
 func constructAliasName(spec *ast.ImportSpec) string {
 	if spec.Name != nil {
 		return spec.Name.Name
@@ -109,32 +68,39 @@ func constructAliasName(spec *ast.ImportSpec) string {
 }
 
 func parseDeclaration(decl ast.Decl, file *types.File) error {
-	onceVars := make(map[string]struct{})
 	switch d := decl.(type) {
 	case *ast.GenDecl:
 		switch d.Tok {
+		case token.IMPORT:
+			var imports []types.Import
+
+			for _, spec := range d.Specs {
+				spec, ok := spec.(*ast.ImportSpec)
+				if !ok {
+					continue // if !ok then comment
+				}
+				alias := constructAliasName(spec)
+				imp := types.Import{
+					Base: types.Base{
+						Name: alias,
+						Docs: parseComments(spec.Doc),
+					},
+					Package: strings.Trim(spec.Path.Value, `"`),
+				}
+
+				imports = append(imports, imp)
+			}
+			file.Imports = append(file.Imports, imports...)
 		case token.VAR:
 			vars, err := parseVariables(d, file)
 			if err != nil {
 				return fmt.Errorf("parse variables %d:%d error: %v", d.Lparen, d.Rparen, err)
 			}
-			for _, variable := range vars {
-				if _, ok := onceVars[variable.Name]; ok {
-					return fmt.Errorf("duplicating variable %s", variable.Name)
-				}
-				onceVars[variable.Name] = struct{}{}
-			}
 			file.Vars = append(file.Vars, vars...)
 		case token.CONST:
 			consts, err := parseVariables(d, file)
 			if err != nil {
-				return fmt.Errorf("parse variables %d:%d error: %v", d.Lparen, d.Rparen, err)
-			}
-			for _, variable := range consts {
-				if _, ok := onceVars[variable.Name]; ok {
-					return fmt.Errorf("duplicating variable %s", variable.Name)
-				}
-				onceVars[variable.Name] = struct{}{}
+				return fmt.Errorf("parse constants %d:%d error: %v", d.Lparen, d.Rparen, err)
 			}
 			file.Constants = append(file.Constants, consts...)
 		case token.TYPE:
@@ -184,7 +150,7 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 			}
 			file.Methods = append(file.Methods, types.Method{
 				Function: fn,
-				Receiver: rec,
+				Receiver: *rec,
 			})
 		} else {
 			file.Functions = append(file.Functions, fn)
@@ -193,22 +159,21 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 	return nil
 }
 
-func parseReceiver(list *ast.FieldList, file *types.File) (t types.Variable, err error) {
+func parseReceiver(list *ast.FieldList, file *types.File) (*types.Variable, error) {
 	recv, err := parseParams(list, file)
 	if err != nil {
-		return
+		return nil, err
 	}
 	if len(recv) != 0 {
-		return recv[0], nil
+		return &recv[0], nil
 	}
-	err = fmt.Errorf("reciever not found for %d:%d", list.Pos(), list.End())
-	return
+	return nil, fmt.Errorf("reciever not found for %d:%d", list.Pos(), list.End())
 }
 
 func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable, err error) {
 	spec := decl.Specs[0].(*ast.ValueSpec)
 	if len(spec.Values) > 0 && len(spec.Values) != len(spec.Names) {
-		err = fmt.Errorf("amount of variables and their values not same %d:%d", spec.Pos(), spec.End())
+		return nil, fmt.Errorf("amount of variables and their values not same %d:%d", spec.Pos(), spec.End())
 	}
 	for i, name := range spec.Names {
 		variable := types.Variable{
@@ -259,10 +224,14 @@ func parseByType(tt *types.Type, spec interface{}, file *types.File) (err error)
 		}
 	case *ast.ArrayType:
 		tt.IsArray = true
-		tt.Len = parseArrayLen(t)
-		err := parseByType(tt, t.Elt, file)
-		if err != nil {
-			return err
+		if t == nil {
+			tt.Len = 0
+		} else {
+			tt.Len = parseArrayLen(t)
+			err := parseByType(tt, t.Elt, file)
+			if err != nil {
+				return err
+			}
 		}
 	case *ast.MapType:
 		var key, value types.Type
@@ -274,19 +243,21 @@ func parseByType(tt *types.Type, spec interface{}, file *types.File) (err error)
 		if err != nil {
 			return err
 		}
-		tt.SetMap(key, value)
+		tt.Map = &types.MapType{Key: key, Value: value}
+		tt.IsMap = true
 	case *ast.InterfaceType:
 		methods, err := parseInterfaceMethods(t, file)
 		if err != nil {
 			return err
 		}
 		tt.IsCustom = true
-		tt.SetInterface(types.Interface{
+		tt.IsInterface = true
+		tt.Interface = &types.Interface{
 			Base: types.Base{
 				Name: tt.Name,
 			},
 			Methods: methods,
-		})
+		}
 	default:
 		return ErrUnexpectedSpec
 	}
@@ -294,9 +265,6 @@ func parseByType(tt *types.Type, spec interface{}, file *types.File) (err error)
 }
 
 func parseArrayLen(t *ast.ArrayType) int {
-	if t == nil {
-		return 0
-	}
 	switch l := t.Len.(type) {
 	case *ast.Ellipsis:
 		return -1
@@ -378,34 +346,35 @@ func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file 
 // Collects and returns all args/results from function or fields from structure.
 func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, error) {
 	var vars []types.Variable
-	if fields != nil {
-		for _, field := range fields.List {
-			if field.Type == nil {
-				return nil, fmt.Errorf("param's type is nil %d:%d", field.Pos(), field.End())
-			}
-			t := types.Type{}
-			err := parseByType(&t, field.Type, file)
-			if err != nil {
-				return nil, fmt.Errorf("wrong type: %v", err)
-			}
-			docs := parseComments(field.Doc)
-			if len(field.Names) == 0 {
+	if fields == nil {
+		return vars, nil
+	}
+	for _, field := range fields.List {
+		if field.Type == nil {
+			return nil, fmt.Errorf("param's type is nil %d:%d", field.Pos(), field.End())
+		}
+		t := types.Type{}
+		err := parseByType(&t, field.Type, file)
+		if err != nil {
+			return nil, fmt.Errorf("wrong type: %v", err)
+		}
+		docs := parseComments(field.Doc)
+		if len(field.Names) == 0 {
+			vars = append(vars, types.Variable{
+				Base: types.Base{
+					Docs: docs,
+				},
+				Type: t,
+			})
+		} else {
+			for _, name := range field.Names {
 				vars = append(vars, types.Variable{
 					Base: types.Base{
+						Name: name.Name,
 						Docs: docs,
 					},
 					Type: t,
 				})
-			} else {
-				for _, name := range field.Names {
-					vars = append(vars, types.Variable{
-						Base: types.Base{
-							Name: name.Name,
-							Docs: docs,
-						},
-						Type: t,
-					})
-				}
 			}
 		}
 	}
@@ -448,7 +417,7 @@ func parseStructFields(s *ast.StructType, file *types.File) ([]types.StructField
 
 func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
 	for _, imp := range file.Imports {
-		if imp.Alias == alias {
+		if imp.Name == alias {
 			return &imp, nil
 		}
 	}
