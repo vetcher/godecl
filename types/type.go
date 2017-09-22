@@ -56,10 +56,3 @@ type MapType struct {
 	Key   Type
 	Value Type
 }
-
-func NewMapType(key, value Type) *MapType {
-	return &MapType{
-		Key:   key,
-		Value: value,
-	}
-}
