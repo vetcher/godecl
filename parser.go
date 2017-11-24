@@ -182,14 +182,17 @@ func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable,
 				Docs: parseComments(decl.Doc),
 			},
 		}
-		var valType types.Type
+		var (
+			valType types.Type
+			err     error
+		)
 		if spec.Type != nil {
-			err := parseByType(&valType, spec.Type, file)
+			valType, err = parseByType(spec.Type, file)
 			if err != nil {
 				return nil, fmt.Errorf("can't parse type: %v", err)
 			}
 		} else {
-			err := parseByValue(&valType, spec.Values[i], file)
+			valType, err = parseByValue(spec.Values[i], file)
 			if err != nil {
 				return nil, fmt.Errorf("can't parse type: %v", err)
 			}
@@ -202,69 +205,79 @@ func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable,
 }
 
 // Fill provided types.Type for cases, when variable's type is provided.
-func parseByType(tt *types.Type, spec interface{}, file *types.File) (err error) {
+func parseByType(spec interface{}, file *types.File) (tt types.Type, err error) {
 	switch t := spec.(type) {
 	case *ast.Ident:
-		tt.Name = t.Name
+		return types.TName{TypeName: t.Name}, nil
 	case *ast.SelectorExpr:
-		tt.Name = t.Sel.Name
-		tt.Import, err = findImportByAlias(file, t.X.(*ast.Ident).Name)
+		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil {
-			return fmt.Errorf("%s: %v", tt.Name, err)
+			return nil, fmt.Errorf("%s: %v", t.Sel.Name, err)
 		}
-		tt.IsCustom = true
-		if tt.Import == nil {
-			return fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
+		if im == nil {
+			return nil, fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
 		}
+		return types.TImport{Import: im}, nil
 	case *ast.StarExpr:
-		tt.IsPointer = true
-		err := parseByType(tt, t.X, file)
+		next, err := parseByType(t.X, file)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		if next.TypeOf() == types.T_Pointer {
+			return types.TPointer{Next: next.NextType(), NumberOfPointers: 1 + next.(types.TPointer).NumberOfPointers}, nil
+		}
+		return types.TPointer{Next: next, NumberOfPointers: 1}, nil
 	case *ast.ArrayType:
-		tt.IsArray = true
-		if t == nil {
-			tt.Len = 0
-		} else {
-			tt.Len = parseArrayLen(t)
-			err := parseByType(tt, t.Elt, file)
-			if err != nil {
-				return err
-			}
+		l := parseArrayLen(t)
+		next, err := parseByType(t.Elt, file)
+		if err != nil {
+			return nil, err
 		}
+		switch l {
+		case -3, -2:
+			return types.TArray{Next: next, IsSlice: true}, nil
+		case -1:
+			return types.TArray{Next: next, IsEllipsis: true}, nil
+		default:
+			return types.TArray{Next: next, ArrayLen: l}, nil
+		}
+
 	case *ast.MapType:
-		var key, value types.Type
-		err := parseByType(&key, t.Key, file)
+		key, err := parseByType(t.Key, file)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		err = parseByType(&value, t.Value, file)
+		value, err := parseByType(t.Value, file)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		tt.Map = &types.MapType{Key: key, Value: value}
-		tt.IsMap = true
+		return types.TMap{Key: key, Value: value}, nil
 	case *ast.InterfaceType:
 		methods, err := parseInterfaceMethods(t, file)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		tt.IsCustom = true
-		tt.IsInterface = true
-		tt.Interface = &types.Interface{
-			Base: types.Base{
-				Name: tt.Name,
+		return types.TInterface{
+			Interface: &types.Interface{
+				Base:    types.Base{},
+				Methods: methods,
 			},
-			Methods: methods,
+		}, nil
+	case *ast.Ellipsis:
+		next, err := parseByType(t.Elt, file)
+		if err != nil {
+			return nil, err
 		}
+		return types.TEllipsis{Next: next}, nil
 	default:
-		return ErrUnexpectedSpec
+		return nil, ErrUnexpectedSpec
 	}
-	return nil
 }
 
 func parseArrayLen(t *ast.ArrayType) int {
+	if t == nil {
+		return -2
+	}
 	switch l := t.Len.(type) {
 	case *ast.Ellipsis:
 		return -1
@@ -275,28 +288,28 @@ func parseArrayLen(t *ast.ArrayType) int {
 		}
 		return 0
 	}
-	return 0
+	return -3
 }
 
 // Fill provided types.Type for cases, when variable's value is provided.
-func parseByValue(tt *types.Type, spec interface{}, file *types.File) (err error) {
+func parseByValue(spec interface{}, file *types.File) (tt types.Type, err error) {
 	switch t := spec.(type) {
 	case *ast.BasicLit:
-		tt.Name = t.Kind.String()
+		return types.TName{TypeName: t.Kind.String()}, nil
 	case *ast.CompositeLit:
-		return parseByValue(tt, t.Type, file)
+		return parseByValue(t.Type, file)
 	case *ast.SelectorExpr:
-		tt.Name = t.Sel.Name
-		tt.Import, err = findImportByAlias(file, t.X.(*ast.Ident).Name)
+		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil {
-			return fmt.Errorf("%s: %v", tt.Name, err)
+			return nil, fmt.Errorf("%s: %v", t.Sel.Name, err)
 		}
-		tt.IsCustom = true
-		if tt.Import == nil {
-			return fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
+		if im == nil {
+			return nil, fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
 		}
+		return types.TImport{Import: im}, nil
+	default:
+		return nil, ErrUnexpectedSpec
 	}
-	return nil
 }
 
 // Collects and returns all interface methods.
@@ -353,8 +366,7 @@ func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, err
 		if field.Type == nil {
 			return nil, fmt.Errorf("param's type is nil %d:%d", field.Pos(), field.End())
 		}
-		t := types.Type{}
-		err := parseByType(&t, field.Type, file)
+		t, err := parseByType(field.Type, file)
 		if err != nil {
 			return nil, fmt.Errorf("wrong type: %v", err)
 		}
@@ -433,13 +445,25 @@ func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
 
 func findStructByMethod(file *types.File, method *types.Method) (*types.Struct, error) {
 	recType := method.Receiver.Type
-	if recType.Import != nil || recType.IsInterface || recType.IsMap || recType.IsCustom || recType.IsArray {
+	if !IsCommonReciever(recType) {
 		return nil, fmt.Errorf("%s has not common reciever", method.String())
 	}
 	for _, structure := range file.Structures {
-		if structure.Name == recType.Name {
+		if structure.Name == recType.Name() {
 			return &structure, nil
 		}
 	}
 	return nil, nil
+}
+
+func IsCommonReciever(t types.Type) bool {
+	for tt := t; tt != nil; tt = tt.NextType() {
+		switch tt.TypeOf() {
+		case types.T_Array, types.T_Interface, types.T_Map, types.T_Import:
+			return false
+		default:
+			continue
+		}
+	}
+	return true
 }

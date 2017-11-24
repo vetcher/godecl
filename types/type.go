@@ -1,10 +1,216 @@
 package types
 
 import (
-	"fmt"
 	"strconv"
+	"strings"
 )
 
+type TypesOfTypes int32
+
+const (
+	T_Name TypesOfTypes = iota
+	T_Pointer
+	T_Array
+	T_Map
+	T_Interface
+	T_Import
+	T_Ellipsis
+)
+
+type TInterface struct {
+	Interface *Interface `json:"interface,omitempty"`
+	Next      Type       `json:"next,omitempty"`
+}
+
+func (TInterface) TypeOf() TypesOfTypes {
+	return T_Interface
+}
+
+func (i TInterface) String() string {
+	str := ""
+	if i.Interface != nil {
+		str += i.Interface.String()
+	}
+	if i.Next != nil {
+		str += i.Next.String()
+	}
+	return str
+}
+
+func (i TInterface) NextType() Type {
+	return i.Next
+}
+
+func (i TInterface) Name() string {
+	return i.Next.Name()
+}
+
+type TMap struct {
+	Key   Type `json:"key,omitempty"`
+	Value Type `json:"value,omitempty"`
+	Next  Type `json:"next,omitempty"`
+}
+
+func (TMap) TypeOf() TypesOfTypes {
+	return T_Map
+}
+
+func (m TMap) String() string {
+	str := "map[" + m.Key.String() + "]" + m.Value.String()
+	if m.Next != nil {
+		str += m.Next.String()
+	}
+	return str
+}
+
+func (m TMap) NextType() Type {
+	return m.Next
+}
+
+func (m TMap) Name() string {
+	return m.Next.Name()
+}
+
+type TName struct {
+	TypeName string `json:"type_name,omitempty"`
+}
+
+func (TName) TypeOf() TypesOfTypes {
+	return T_Name
+}
+
+func (i TName) String() string {
+	return i.TypeName
+}
+
+func (i TName) NextType() Type {
+	return nil
+}
+
+func (i TName) Name() string {
+	return i.TypeName
+}
+
+type TPointer struct {
+	NumberOfPointers int  `json:"number_of_pointers,omitempty"`
+	Next             Type `json:"next,omitempty"`
+}
+
+func (TPointer) TypeOf() TypesOfTypes {
+	return T_Pointer
+}
+
+func (i TPointer) String() string {
+	str := strings.Repeat("*", i.NumberOfPointers)
+	if i.Next != nil {
+		str += i.Next.String()
+	}
+	return str
+}
+
+func (i TPointer) NextType() Type {
+	return i.Next
+}
+
+func (i TPointer) Name() string {
+	return i.Next.Name()
+}
+
+type TArray struct {
+	ArrayLen   int  `json:"array_len,omitempty"`
+	IsSlice    bool `json:"is_slice,omitempty"` // [] declaration
+	IsEllipsis bool `json:"is_ellipsis,omitempty"`
+	Next       Type `json:"next,omitempty"`
+}
+
+func (TArray) TypeOf() TypesOfTypes {
+	return T_Array
+}
+
+func (i TArray) String() string {
+	str := ""
+	if i.IsEllipsis {
+		str += "..."
+	} else if i.IsSlice {
+		str += "[]"
+	} else {
+		str += "[" + strconv.Itoa(i.ArrayLen) + "]"
+	}
+	if i.Next != nil {
+		str += i.Next.String()
+	}
+	return str
+}
+
+func (i TArray) NextType() Type {
+	return i.Next
+}
+
+func (i TArray) Name() string {
+	return i.Next.Name()
+}
+
+type TImport struct {
+	Import *Import `json:"import,omitempty"`
+	Next   Type    `json:"next,omitempty"`
+}
+
+func (TImport) TypeOf() TypesOfTypes {
+	return T_Import
+}
+
+func (i TImport) String() string {
+	str := ""
+	if i.Import != nil {
+		str += i.Import.Name
+	}
+	if i.Next != nil {
+		str += i.Next.String()
+	}
+	return str
+}
+
+func (i TImport) NextType() Type {
+	return i.Next
+}
+
+func (i TImport) Name() string {
+	return i.Next.Name()
+}
+
+type Type interface {
+	TypeOf() TypesOfTypes
+	String() string
+	NextType() Type
+	Name() string
+}
+
+// TEllipsis used only for function params in declarations like `strs ...string`
+type TEllipsis struct {
+	Next Type `json:"next,omitempty"`
+}
+
+func (TEllipsis) TypeOf() TypesOfTypes {
+	return T_Ellipsis
+}
+
+func (i TEllipsis) String() string {
+	str := "..."
+	if i.Next != nil {
+		str += i.Next.String()
+	}
+	return str
+}
+
+func (i TEllipsis) NextType() Type {
+	return i.Next
+}
+
+func (i TEllipsis) Name() string {
+	return i.Next.Name()
+}
+
+/*
 // Type contains type information. It can not carry too complex types, such as `struct{func(map[interface{}]string)}`.
 type Type struct {
 	Name      string  `json:"name,omitempty"`
@@ -56,3 +262,4 @@ type MapType struct {
 	Key   Type
 	Value Type
 }
+*/

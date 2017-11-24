@@ -30,3 +30,9 @@ type OMG struct {
 	i string `json:"i,j"xml:"i,k"gorm:"dasdas,f"`
 	j []int
 }
+
+func yy(x ...[]*[]*map[*[]interface {
+	Null()
+}]map[*int][][]****int64) {
+
+}
