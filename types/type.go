@@ -17,9 +17,17 @@ const (
 	T_Ellipsis
 )
 
+type Type interface {
+	TypeOf() TypesOfTypes
+	String() string
+}
+
+type LinearType interface {
+	NextType() Type
+}
+
 type TInterface struct {
 	Interface *Interface `json:"interface,omitempty"`
-	Next      Type       `json:"next,omitempty"`
 }
 
 func (TInterface) TypeOf() TypesOfTypes {
@@ -27,28 +35,15 @@ func (TInterface) TypeOf() TypesOfTypes {
 }
 
 func (i TInterface) String() string {
-	str := ""
 	if i.Interface != nil {
-		str += i.Interface.String()
+		return i.Interface.String()
 	}
-	if i.Next != nil {
-		str += i.Next.String()
-	}
-	return str
-}
-
-func (i TInterface) NextType() Type {
-	return i.Next
-}
-
-func (i TInterface) Name() string {
-	return i.Next.Name()
+	return ""
 }
 
 type TMap struct {
 	Key   Type `json:"key,omitempty"`
 	Value Type `json:"value,omitempty"`
-	Next  Type `json:"next,omitempty"`
 }
 
 func (TMap) TypeOf() TypesOfTypes {
@@ -56,19 +51,7 @@ func (TMap) TypeOf() TypesOfTypes {
 }
 
 func (m TMap) String() string {
-	str := "map[" + m.Key.String() + "]" + m.Value.String()
-	if m.Next != nil {
-		str += m.Next.String()
-	}
-	return str
-}
-
-func (m TMap) NextType() Type {
-	return m.Next
-}
-
-func (m TMap) Name() string {
-	return m.Next.Name()
+	return "map[" + m.Key.String() + "]" + m.Value.String()
 }
 
 type TName struct {
@@ -85,10 +68,6 @@ func (i TName) String() string {
 
 func (i TName) NextType() Type {
 	return nil
-}
-
-func (i TName) Name() string {
-	return i.TypeName
 }
 
 type TPointer struct {
@@ -110,10 +89,6 @@ func (i TPointer) String() string {
 
 func (i TPointer) NextType() Type {
 	return i.Next
-}
-
-func (i TPointer) Name() string {
-	return i.Next.Name()
 }
 
 type TArray struct {
@@ -146,10 +121,6 @@ func (i TArray) NextType() Type {
 	return i.Next
 }
 
-func (i TArray) Name() string {
-	return i.Next.Name()
-}
-
 type TImport struct {
 	Import *Import `json:"import,omitempty"`
 	Next   Type    `json:"next,omitempty"`
@@ -174,17 +145,6 @@ func (i TImport) NextType() Type {
 	return i.Next
 }
 
-func (i TImport) Name() string {
-	return i.Next.Name()
-}
-
-type Type interface {
-	TypeOf() TypesOfTypes
-	String() string
-	NextType() Type
-	Name() string
-}
-
 // TEllipsis used only for function params in declarations like `strs ...string`
 type TEllipsis struct {
 	Next Type `json:"next,omitempty"`
@@ -204,10 +164,6 @@ func (i TEllipsis) String() string {
 
 func (i TEllipsis) NextType() Type {
 	return i.Next
-}
-
-func (i TEllipsis) Name() string {
-	return i.Next.Name()
 }
 
 /*

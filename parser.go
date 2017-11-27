@@ -11,15 +11,17 @@ import (
 
 	"github.com/fatih/structtag"
 	"github.com/vetcher/godecl/types"
+	"path/filepath"
 )
 
 var (
 	ErrCouldNotResolvePackage = errors.New("could not resolve package")
 	ErrUnexpectedSpec         = errors.New("unexpected spec")
+	ErrNotInGoPath            = errors.New("not in GOPATH")
 )
 
 // Parses ast.File and return all top-level declarations.
-func ParseFile(file *ast.File) (*types.File, error) {
+func ParseAstFile(file *ast.File) (*types.File, error) {
 	f := &types.File{
 		Base: types.Base{
 			Name: file.Name.Name,
@@ -224,7 +226,7 @@ func parseByType(spec interface{}, file *types.File) (tt types.Type, err error) 
 			return nil, err
 		}
 		if next.TypeOf() == types.T_Pointer {
-			return types.TPointer{Next: next.NextType(), NumberOfPointers: 1 + next.(types.TPointer).NumberOfPointers}, nil
+			return types.TPointer{Next: next.(types.TPointer).NextType(), NumberOfPointers: 1 + next.(types.TPointer).NumberOfPointers}, nil
 		}
 		return types.TPointer{Next: next, NumberOfPointers: 1}, nil
 	case *ast.ArrayType:
@@ -449,7 +451,7 @@ func findStructByMethod(file *types.File, method *types.Method) (*types.Struct, 
 		return nil, fmt.Errorf("%s has not common reciever", method.String())
 	}
 	for _, structure := range file.Structures {
-		if structure.Name == recType.Name() {
+		if name, _ := types.TypeName(recType); structure.Name == name {
 			return &structure, nil
 		}
 	}
@@ -457,11 +459,16 @@ func findStructByMethod(file *types.File, method *types.Method) (*types.Struct, 
 }
 
 func IsCommonReciever(t types.Type) bool {
-	for tt := t; tt != nil; tt = tt.NextType() {
+	for tt := t; tt != nil; {
 		switch tt.TypeOf() {
 		case types.T_Array, types.T_Interface, types.T_Map, types.T_Import:
 			return false
 		default:
+			x, ok := tt.(types.LinearType)
+			if !ok {
+				return false
+			}
+			tt = x.NextType()
 			continue
 		}
 	}
