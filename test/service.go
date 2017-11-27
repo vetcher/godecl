@@ -38,4 +38,7 @@ func yy(x ...[]*[]*map[*[]interface {
 }
 */
 
-var x string
+type X string
+type Y int
+
+var x map[X]Y

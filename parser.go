@@ -11,24 +11,36 @@ import (
 
 	"github.com/fatih/structtag"
 	"github.com/vetcher/godecl/types"
-	"path/filepath"
 )
 
 var (
 	ErrCouldNotResolvePackage = errors.New("could not resolve package")
 	ErrUnexpectedSpec         = errors.New("unexpected spec")
 	ErrNotInGoPath            = errors.New("not in GOPATH")
+	ErrGoPathIsEmpty          = errors.New("GOPATH is empty")
 )
 
 // Parses ast.File and return all top-level declarations.
-func ParseAstFile(file *ast.File) (*types.File, error) {
+func ParseAstFile(file *ast.File, packagePath string) (*types.File, error) {
 	f := &types.File{
 		Base: types.Base{
 			Name: file.Name.Name,
 			Docs: parseComments(file.Doc),
 		},
 	}
-	err := parseTopLevelDeclarations(file.Decls, f)
+	var pp *types.Import
+	if packagePath != "" {
+		alias := constructAliasNameString(packagePath)
+		imp := types.Import{
+			Base: types.Base{
+				Name: alias,
+			},
+			Package: strings.Trim(packagePath, `"`),
+		}
+		f.Imports = append(f.Imports, imp)
+		pp = &imp
+	}
+	err := parseTopLevelDeclarations(file.Decls, f, pp)
 	if err != nil {
 		return nil, err
 	}
@@ -52,9 +64,9 @@ func parseComments(group *ast.CommentGroup) (comments []string) {
 	return
 }
 
-func parseTopLevelDeclarations(decls []ast.Decl, file *types.File) error {
+func parseTopLevelDeclarations(decls []ast.Decl, file *types.File, pp *types.Import) error {
 	for i := range decls {
-		err := parseDeclaration(decls[i], file)
+		err := parseDeclaration(decls[i], file, pp)
 		if err != nil {
 			return err
 		}
@@ -66,10 +78,14 @@ func constructAliasName(spec *ast.ImportSpec) string {
 	if spec.Name != nil {
 		return spec.Name.Name
 	}
-	return path.Base(strings.Trim(spec.Path.Value, `"`))
+	return constructAliasNameString(spec.Path.Value)
 }
 
-func parseDeclaration(decl ast.Decl, file *types.File) error {
+func constructAliasNameString(str string) string {
+	return path.Base(strings.Trim(str, `"`))
+}
+
+func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import) error {
 	switch d := decl.(type) {
 	case *ast.GenDecl:
 		switch d.Tok {
@@ -94,13 +110,13 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 			}
 			file.Imports = append(file.Imports, imports...)
 		case token.VAR:
-			vars, err := parseVariables(d, file)
+			vars, err := parseVariables(d, file, pp)
 			if err != nil {
 				return fmt.Errorf("parse variables %d:%d error: %v", d.Lparen, d.Rparen, err)
 			}
 			file.Vars = append(file.Vars, vars...)
 		case token.CONST:
-			consts, err := parseVariables(d, file)
+			consts, err := parseVariables(d, file, pp)
 			if err != nil {
 				return fmt.Errorf("parse constants %d:%d error: %v", d.Lparen, d.Rparen, err)
 			}
@@ -109,7 +125,7 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 			typeSpec := d.Specs[0].(*ast.TypeSpec)
 			switch t := typeSpec.Type.(type) {
 			case *ast.InterfaceType:
-				methods, err := parseInterfaceMethods(t, file)
+				methods, err := parseInterfaceMethods(t, file, pp)
 				if err != nil {
 					return err
 				}
@@ -121,7 +137,7 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 					Methods: methods,
 				})
 			case *ast.StructType:
-				strFields, err := parseStructFields(t, file)
+				strFields, err := parseStructFields(t, file, pp)
 				if err != nil {
 					return fmt.Errorf("%s: can't parse struct fields: %v", typeSpec.Name.Name, err)
 				}
@@ -141,12 +157,12 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 				Docs: parseComments(d.Doc),
 			},
 		}
-		err := parseFuncParamsAndResults(d.Type, &fn, file)
+		err := parseFuncParamsAndResults(d.Type, &fn, file, pp)
 		if err != nil {
 			return fmt.Errorf("parse func %s error: %v", fn.Name, err)
 		}
 		if d.Recv != nil {
-			rec, err := parseReceiver(d.Recv, file)
+			rec, err := parseReceiver(d.Recv, file, pp)
 			if err != nil {
 				return err
 			}
@@ -161,8 +177,8 @@ func parseDeclaration(decl ast.Decl, file *types.File) error {
 	return nil
 }
 
-func parseReceiver(list *ast.FieldList, file *types.File) (*types.Variable, error) {
-	recv, err := parseParams(list, file)
+func parseReceiver(list *ast.FieldList, file *types.File, pp *types.Import) (*types.Variable, error) {
+	recv, err := parseParams(list, file, pp)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +188,7 @@ func parseReceiver(list *ast.FieldList, file *types.File) (*types.Variable, erro
 	return nil, fmt.Errorf("reciever not found for %d:%d", list.Pos(), list.End())
 }
 
-func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable, err error) {
+func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import) (vars []types.Variable, err error) {
 	spec := decl.Specs[0].(*ast.ValueSpec)
 	if len(spec.Values) > 0 && len(spec.Values) != len(spec.Names) {
 		return nil, fmt.Errorf("amount of variables and their values not same %d:%d", spec.Pos(), spec.End())
@@ -189,7 +205,7 @@ func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable,
 			err     error
 		)
 		if spec.Type != nil {
-			valType, err = parseByType(spec.Type, file)
+			valType, err = parseByType(spec.Type, file, pp)
 			if err != nil {
 				return nil, fmt.Errorf("can't parse type: %v", err)
 			}
@@ -206,11 +222,21 @@ func parseVariables(decl *ast.GenDecl, file *types.File) (vars []types.Variable,
 	return
 }
 
+func setupImportIfNeed(tt types.Type, tImport *types.Import) types.Type {
+	if tImport == nil {
+		return tt
+	}
+	if types.IsBuiltinTypeString(tt.String()) {
+		return tt
+	}
+	return types.TImport{Import: tImport, Next: tt}
+}
+
 // Fill provided types.Type for cases, when variable's type is provided.
-func parseByType(spec interface{}, file *types.File) (tt types.Type, err error) {
+func parseByType(spec interface{}, file *types.File, pp *types.Import) (tt types.Type, err error) {
 	switch t := spec.(type) {
 	case *ast.Ident:
-		return types.TName{TypeName: t.Name}, nil
+		return setupImportIfNeed(types.TName{TypeName: t.Name}, pp), nil
 	case *ast.SelectorExpr:
 		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil {
@@ -221,7 +247,7 @@ func parseByType(spec interface{}, file *types.File) (tt types.Type, err error) 
 		}
 		return types.TImport{Import: im}, nil
 	case *ast.StarExpr:
-		next, err := parseByType(t.X, file)
+		next, err := parseByType(t.X, file, pp)
 		if err != nil {
 			return nil, err
 		}
@@ -231,7 +257,7 @@ func parseByType(spec interface{}, file *types.File) (tt types.Type, err error) 
 		return types.TPointer{Next: next, NumberOfPointers: 1}, nil
 	case *ast.ArrayType:
 		l := parseArrayLen(t)
-		next, err := parseByType(t.Elt, file)
+		next, err := parseByType(t.Elt, file, pp)
 		if err != nil {
 			return nil, err
 		}
@@ -245,17 +271,17 @@ func parseByType(spec interface{}, file *types.File) (tt types.Type, err error) 
 		}
 
 	case *ast.MapType:
-		key, err := parseByType(t.Key, file)
+		key, err := parseByType(t.Key, file, pp)
 		if err != nil {
 			return nil, err
 		}
-		value, err := parseByType(t.Value, file)
+		value, err := parseByType(t.Value, file, pp)
 		if err != nil {
 			return nil, err
 		}
 		return types.TMap{Key: key, Value: value}, nil
 	case *ast.InterfaceType:
-		methods, err := parseInterfaceMethods(t, file)
+		methods, err := parseInterfaceMethods(t, file, pp)
 		if err != nil {
 			return nil, err
 		}
@@ -266,7 +292,7 @@ func parseByType(spec interface{}, file *types.File) (tt types.Type, err error) 
 			},
 		}, nil
 	case *ast.Ellipsis:
-		next, err := parseByType(t.Elt, file)
+		next, err := parseByType(t.Elt, file, pp)
 		if err != nil {
 			return nil, err
 		}
@@ -315,11 +341,11 @@ func parseByValue(spec interface{}, file *types.File) (tt types.Type, err error)
 }
 
 // Collects and returns all interface methods.
-func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File) ([]*types.Function, error) {
+func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File, pp *types.Import) ([]*types.Function, error) {
 	var fns []*types.Function
 	if ifaceType.Methods != nil {
 		for _, method := range ifaceType.Methods.List {
-			fn, err := parseFunction(method, file)
+			fn, err := parseFunction(method, file, pp)
 			if err != nil {
 				return nil, err
 			}
@@ -329,7 +355,7 @@ func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File) ([]*t
 	return fns, nil
 }
 
-func parseFunction(funcField *ast.Field, file *types.File) (*types.Function, error) {
+func parseFunction(funcField *ast.Field, file *types.File, pp *types.Import) (*types.Function, error) {
 	fn := &types.Function{
 		Base: types.Base{
 			Name: funcField.Names[0].Name,
@@ -337,20 +363,20 @@ func parseFunction(funcField *ast.Field, file *types.File) (*types.Function, err
 		},
 	}
 	funcType := funcField.Type.(*ast.FuncType)
-	err := parseFuncParamsAndResults(funcType, fn, file)
+	err := parseFuncParamsAndResults(funcType, fn, file, pp)
 	if err != nil {
 		return nil, err
 	}
 	return fn, nil
 }
 
-func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file *types.File) error {
-	args, err := parseParams(funcType.Params, file)
+func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file *types.File, pp *types.Import) error {
+	args, err := parseParams(funcType.Params, file, pp)
 	if err != nil {
 		return fmt.Errorf("can't parse args: %v", err)
 	}
 	fn.Args = args
-	results, err := parseParams(funcType.Results, file)
+	results, err := parseParams(funcType.Results, file, pp)
 	if err != nil {
 		return fmt.Errorf("can't parse results: %v", err)
 	}
@@ -359,7 +385,7 @@ func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file 
 }
 
 // Collects and returns all args/results from function or fields from structure.
-func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, error) {
+func parseParams(fields *ast.FieldList, file *types.File, pp *types.Import) ([]types.Variable, error) {
 	var vars []types.Variable
 	if fields == nil {
 		return vars, nil
@@ -368,7 +394,7 @@ func parseParams(fields *ast.FieldList, file *types.File) ([]types.Variable, err
 		if field.Type == nil {
 			return nil, fmt.Errorf("param's type is nil %d:%d", field.Pos(), field.End())
 		}
-		t, err := parseByType(field.Type, file)
+		t, err := parseByType(field.Type, file, pp)
 		if err != nil {
 			return nil, fmt.Errorf("wrong type: %v", err)
 		}
@@ -412,8 +438,8 @@ func parseTags(lit *ast.BasicLit) (tags map[string][]string, raw string) {
 	return
 }
 
-func parseStructFields(s *ast.StructType, file *types.File) ([]types.StructField, error) {
-	fields, err := parseParams(s.Fields, file)
+func parseStructFields(s *ast.StructType, file *types.File, pp *types.Import) ([]types.StructField, error) {
+	fields, err := parseParams(s.Fields, file, pp)
 	if err != nil {
 		return nil, err
 	}
