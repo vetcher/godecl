@@ -477,7 +477,7 @@ func findStructByMethod(file *types.File, method *types.Method) (*types.Struct, 
 		return nil, fmt.Errorf("%s has not common reciever", method.String())
 	}
 	for _, structure := range file.Structures {
-		if name, _ := types.TypeName(recType); structure.Name == name {
+		if name := types.TypeName(recType); name != nil && structure.Name == *name {
 			return &structure, nil
 		}
 	}
