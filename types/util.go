@@ -164,6 +164,21 @@ func TypeInterface(t Type) Type {
 	}
 }
 
+func TypeEllipsis(t Type) Type {
+	for {
+		switch tt := t.(type) {
+		case TEllipsis:
+			return tt
+		default:
+			next, ok := tt.(LinearType)
+			if !ok {
+				return nil
+			}
+			t = next.NextType()
+		}
+	}
+}
+
 func IsType(f func(Type) Type) func(Type) bool {
 	return func(t Type) bool {
 		return f(t) != nil
@@ -179,4 +194,5 @@ var (
 	IsMap = IsType(TypeMap)
 	// Checks, is type contain interface.
 	IsInterface = IsType(TypeInterface)
+	IsEllipsis  = IsType(TypeEllipsis)
 )
