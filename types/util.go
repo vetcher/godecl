@@ -20,6 +20,7 @@ var builtinTypes = map[string]bool{
 	"uintptr":    true,
 	"byte":       true,
 	"rune":       true,
+	"error":      true,
 }
 
 var builtinFunctions = map[string]bool{
