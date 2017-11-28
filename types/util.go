@@ -88,3 +88,18 @@ func TypeName(t Type) (string, bool) {
 		}
 	}
 }
+
+func TypeImport(t Type) *Import {
+	for {
+		switch tt := t.(type) {
+		case TImport:
+			return tt.Import
+		default:
+			next, ok := tt.(LinearType)
+			if !ok {
+				return nil
+			}
+			t = next.NextType()
+		}
+	}
+}
