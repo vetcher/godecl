@@ -245,7 +245,7 @@ func parseByType(spec interface{}, file *types.File, pp *types.Import) (tt types
 		if im == nil {
 			return nil, fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
 		}
-		return types.TImport{Import: im}, nil
+		return types.TImport{Import: im, Next: types.TName{TypeName: t.Sel.Name}}, nil
 	case *ast.StarExpr:
 		next, err := parseByType(t.X, file, pp)
 		if err != nil {
