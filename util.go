@@ -45,7 +45,7 @@ func ParseFileWithoutGOPATH(filename string) (*types.File, error) {
 	}
 	info, err := ParseAstFile(tree, "")
 	if err != nil {
-		return nil, fmt.Errorf("error when parsing info from file: %v", err)
+		return nil, fmt.Errorf("error when parsing info from file %s: %v", filename, err)
 	}
 	return info, nil
 }
