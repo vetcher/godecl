@@ -1,5 +1,5 @@
 package test
-
+/*
 // import comment
 import (
 	"io"
@@ -28,5 +28,17 @@ type StringServices interface {
 
 type OMG struct {
 	i string `json:"i,j"xml:"i,k"gorm:"dasdas,f"`
-	j []int
+	j *OMG
 }
+
+func yy(x ...[]*[]*map[*[]interface {
+	Null()
+}]map[*int][][]****int64) {
+
+}
+*/
+
+type X string
+type Y int
+
+var x map[X]Y
