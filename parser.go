@@ -49,7 +49,18 @@ func ParseAstFile(file *ast.File, packagePath string) (*types.File, error) {
 		if err != nil {
 			return nil, err
 		}
-		structure.Methods = append(structure.Methods, &f.Methods[i])
+		if structure != nil {
+			structure.Methods = append(structure.Methods, &f.Methods[i])
+			continue
+		}
+		typee, err := findTypeByMethod(f, &f.Methods[i])
+		if err != nil {
+			return nil, err
+		}
+		if typee != nil {
+			typee.Methods = append(typee.Methods, &f.Methods[i])
+			continue
+		}
 	}
 	return f, nil
 }
@@ -148,6 +159,15 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import) error {
 					},
 					Fields: strFields,
 				})
+			default:
+				newType, err := parseByType(typeSpec.Type, file, pp)
+				if err != nil {
+					return fmt.Errorf("%s: can't parse type: %v", typeSpec.Name.Name, err)
+				}
+				file.Types = append(file.Types, types.FileType{Base: types.Base{
+					Name: typeSpec.Name.Name,
+					Docs: parseComments(d.Doc),
+				}, Type: newType})
 			}
 		}
 	case *ast.FuncDecl:
@@ -236,7 +256,7 @@ func setupImportIfNeed(tt types.Type, tImport *types.Import) types.Type {
 func parseByType(spec interface{}, file *types.File, pp *types.Import) (tt types.Type, err error) {
 	switch t := spec.(type) {
 	case *ast.Ident:
-		return setupImportIfNeed(types.TName{TypeName: t.Name}, pp), nil
+		return types.TName{TypeName: t.Name}, nil
 	case *ast.SelectorExpr:
 		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil {
@@ -476,9 +496,30 @@ func findStructByMethod(file *types.File, method *types.Method) (*types.Struct, 
 	if !IsCommonReciever(recType) {
 		return nil, fmt.Errorf("%s has not common reciever", method.String())
 	}
-	for _, structure := range file.Structures {
-		if name := types.TypeName(recType); name != nil && structure.Name == *name {
-			return &structure, nil
+	name := types.TypeName(recType)
+	if name == nil {
+		return nil, nil
+	}
+	for i := range file.Structures {
+		if file.Structures[i].Name == *name {
+			return &file.Structures[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func findTypeByMethod(file *types.File, method *types.Method) (*types.FileType, error) {
+	recType := method.Receiver.Type
+	if !IsCommonReciever(recType) {
+		return nil, fmt.Errorf("%s has not common reciever", method.String())
+	}
+	name := types.TypeName(recType)
+	if name == nil {
+		return nil, nil
+	}
+	for i:= range file.Types {
+		if file.Types[i].Name == *name {
+			return &file.Types[i], nil
 		}
 	}
 	return nil, nil
