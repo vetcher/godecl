@@ -133,7 +133,7 @@ func (TImport) TypeOf() TypesOfTypes {
 func (i TImport) String() string {
 	str := ""
 	if i.Import != nil {
-		str += i.Import.Name
+		str += i.Import.Name + "."
 	}
 	if i.Next != nil {
 		str += i.Next.String()
