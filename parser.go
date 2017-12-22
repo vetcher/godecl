@@ -356,7 +356,7 @@ func parseByValue(spec interface{}, file *types.File) (tt types.Type, err error)
 		}
 		return types.TImport{Import: im}, nil
 	default:
-		return nil, ErrUnexpectedSpec
+		return nil, nil
 	}
 }
 

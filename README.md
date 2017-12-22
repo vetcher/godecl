@@ -23,10 +23,11 @@ It can collect information about:
     * Name
     * Docs
     * Types
+    * **Ignore variables which declared by function call!**
 * Interfaces
     * Name
     * Docs
-    * Methods
+    * Functions
 * Structures
     * Docs
     * Fields
@@ -41,6 +42,7 @@ It can collect information about:
     * Receiver
     * Arguments
     * Results
+    * Linked structure
 
 ## Usage example
 ``` golang
