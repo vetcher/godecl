@@ -17,6 +17,5 @@ func TestParser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println(info.Vars[0].Type.String())
 	fmt.Println(string(bytes))
 }

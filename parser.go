@@ -289,7 +289,6 @@ func parseByType(spec interface{}, file *types.File, pp *types.Import) (tt types
 		default:
 			return types.TArray{Next: next, ArrayLen: l}, nil
 		}
-
 	case *ast.MapType:
 		key, err := parseByType(t.Key, file, pp)
 		if err != nil {
@@ -317,8 +316,18 @@ func parseByType(spec interface{}, file *types.File, pp *types.Import) (tt types
 			return nil, err
 		}
 		return types.TEllipsis{Next: next}, nil
+	case *ast.ChanType:
+		next, err := parseByType(t.Value, file, pp)
+		if err != nil {
+			return nil, err
+		}
+		return types.TChan{Next: next, Direction: int(t.Dir)}, nil
+	case *ast.ParenExpr:
+		return parseByType(t.X, file, pp)
+	case *ast.BadExpr:
+		return nil, fmt.Errorf("bad expression")
 	default:
-		return nil, ErrUnexpectedSpec
+		return nil, fmt.Errorf("%v: %T", ErrUnexpectedSpec, t)
 	}
 }
 
@@ -465,7 +474,12 @@ func parseStructFields(s *ast.StructType, file *types.File, pp *types.Import) ([
 	}
 	var strF []types.StructField
 	for i, f := range fields {
-		parsedTags, rawTags := parseTags(s.Fields.List[i].Tag)
+		var tags *ast.BasicLit
+		// Fill tags, if Tag field exist in ast
+		if i < len(s.Fields.List) {
+			tags = s.Fields.List[i].Tag
+		}
+		parsedTags, rawTags := parseTags(tags)
 		strF = append(strF, types.StructField{
 			Variable: f,
 			Tags:     parsedTags,
@@ -517,7 +531,7 @@ func findTypeByMethod(file *types.File, method *types.Method) (*types.FileType, 
 	if name == nil {
 		return nil, nil
 	}
-	for i:= range file.Types {
+	for i := range file.Types {
 		if file.Types[i].Name == *name {
 			return &file.Types[i], nil
 		}
