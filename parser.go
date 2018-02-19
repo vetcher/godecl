@@ -425,7 +425,7 @@ func parseParams(fields *ast.FieldList, file *types.File, pp *types.Import) ([]t
 		}
 		t, err := parseByType(field.Type, file, pp)
 		if err != nil {
-			return nil, fmt.Errorf("wrong type: %v", err)
+			return nil, fmt.Errorf("wrong type of %s: %v", strings.Join(namesOfIdents(field.Names), ","), err)
 		}
 		docs := parseComments(field.Doc)
 		if len(field.Names) == 0 {

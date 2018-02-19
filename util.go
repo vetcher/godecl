@@ -2,6 +2,7 @@ package godecl
 
 import (
 	"fmt"
+	"go/ast"
 	astparser "go/parser"
 	"go/token"
 	"os"
@@ -75,4 +76,13 @@ func ResolvePackagePath(outPath string) (string, error) {
 	}
 
 	return absOutPath[len(gopathSrc)+1:], nil
+}
+
+func namesOfIdents(idents []*ast.Ident) (res []string) {
+	for i := range idents {
+		if idents[i] != nil {
+			res = append(res, idents[i].Name)
+		}
+	}
+	return
 }
