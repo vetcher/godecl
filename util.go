@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"io/ioutil"
+
 	"github.com/vetcher/godecl/types"
 )
 
@@ -51,12 +53,53 @@ func ParseFileWithoutGOPATH(filename string) (*types.File, error) {
 	return info, nil
 }
 
-func MergeFiles(files []*types.File) (*types.Type, error) {
-	return nil, nil
+func MergeFiles(files []*types.File) (*types.File, error) {
+	targetFile := &types.File{}
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		// do not merge documentation.
+		targetFile.Base.Name = file.Base.Name
+		targetFile.Imports = mergeImports(targetFile.Imports, file.Imports)
+		targetFile.Constants = append(targetFile.Constants, file.Constants...)
+		targetFile.Vars = append(targetFile.Vars, file.Vars...)
+		targetFile.Interfaces = append(targetFile.Interfaces, file.Interfaces...)
+		targetFile.Structures = append(targetFile.Structures, file.Structures...)
+		targetFile.Methods = append(targetFile.Methods, file.Methods...)
+		targetFile.Types = append(targetFile.Types, file.Types...)
+	}
+	err := linkMethodsToStructs(targetFile)
+	if err != nil {
+		return nil, err
+	}
+	return targetFile, nil
 }
 
 func ParsePackage(path string) ([]*types.File, error) {
-	return nil, nil
+	p, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("can not filepath.Abs: %v", err)
+	}
+	files, err := ioutil.ReadDir(p)
+	if err != nil {
+		return nil, fmt.Errorf("can not read dir: %v", err)
+	}
+	var parsedFiles []*types.File
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(file.Name(), "_text.go") {
+			continue
+		}
+		f, err := ParseFile(file.Name())
+		if err != nil {
+			return nil, fmt.Errorf("can not parse %s: %v", file.Name(), err)
+		}
+		parsedFiles = append(parsedFiles, f)
+	}
+	return parsedFiles, nil
 }
 
 func ResolvePackagePath(outPath string) (string, error) {

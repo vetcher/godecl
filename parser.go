@@ -20,34 +20,62 @@ var (
 	ErrGoPathIsEmpty          = errors.New("GOPATH is empty")
 )
 
+type Option uint
+
+const (
+	IgnoreComments Option = 1
+	IgnoreStructs  Option = iota * 2
+	IgnoreInterfaces
+)
+
+func concatOptions(ops []Option) (o Option) {
+	for i := range ops {
+		o |= ops[i]
+	}
+	return
+}
+
+func (o Option) check(what Option) bool {
+	return o&what == what
+}
+
 // Parses ast.File and return all top-level declarations.
-func ParseAstFile(file *ast.File, packagePath string) (*types.File, error) {
+func ParseAstFile(file *ast.File, packagePath string, options ...Option) (*types.File, error) {
+	opt := concatOptions(options)
 	f := &types.File{
 		Base: types.Base{
 			Name: file.Name.Name,
-			Docs: parseComments(file.Doc),
+			Docs: parseComments(file.Doc, opt),
 		},
 	}
 	var pp *types.Import
 	if packagePath != "" {
 		alias := constructAliasNameString(packagePath)
-		imp := types.Import{
+		imp := &types.Import{
 			Base: types.Base{
 				Name: alias,
 			},
 			Package: strings.Trim(packagePath, `"`),
 		}
 		f.Imports = append(f.Imports, imp)
-		pp = &imp
+		pp = imp
 	}
 	err := parseTopLevelDeclarations(file.Decls, f, pp)
 	if err != nil {
 		return nil, err
 	}
+	err = linkMethodsToStructs(f)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func linkMethodsToStructs(f *types.File) error {
 	for i := range f.Methods {
 		structure, err := findStructByMethod(f, &f.Methods[i])
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if structure != nil {
 			structure.Methods = append(structure.Methods, &f.Methods[i])
@@ -55,17 +83,20 @@ func ParseAstFile(file *ast.File, packagePath string) (*types.File, error) {
 		}
 		typee, err := findTypeByMethod(f, &f.Methods[i])
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if typee != nil {
 			typee.Methods = append(typee.Methods, &f.Methods[i])
 			continue
 		}
 	}
-	return f, nil
+	return nil
 }
 
-func parseComments(group *ast.CommentGroup) (comments []string) {
+func parseComments(group *ast.CommentGroup, o Option) (comments []string) {
+	if o.check(IgnoreComments) {
+		return
+	}
 	if group == nil {
 		return
 	}
@@ -101,7 +132,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import) error {
 	case *ast.GenDecl:
 		switch d.Tok {
 		case token.IMPORT:
-			var imports []types.Import
+			var imports []*types.Import
 
 			for _, spec := range d.Specs {
 				spec, ok := spec.(*ast.ImportSpec)
@@ -109,10 +140,10 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import) error {
 					continue // if !ok then comment
 				}
 				alias := constructAliasName(spec)
-				imp := types.Import{
+				imp := &types.Import{
 					Base: types.Base{
 						Name: alias,
-						Docs: parseComments(spec.Doc),
+						Docs: parseComments(spec.Doc, 0),
 					},
 					Package: strings.Trim(spec.Path.Value, `"`),
 				}
@@ -143,7 +174,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import) error {
 				file.Interfaces = append(file.Interfaces, types.Interface{
 					Base: types.Base{
 						Name: typeSpec.Name.Name,
-						Docs: parseComments(d.Doc),
+						Docs: parseComments(d.Doc, 0),
 					},
 					Methods: methods,
 				})
@@ -155,7 +186,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import) error {
 				file.Structures = append(file.Structures, types.Struct{
 					Base: types.Base{
 						Name: typeSpec.Name.Name,
-						Docs: parseComments(d.Doc),
+						Docs: parseComments(d.Doc, 0),
 					},
 					Fields: strFields,
 				})
@@ -166,7 +197,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import) error {
 				}
 				file.Types = append(file.Types, types.FileType{Base: types.Base{
 					Name: typeSpec.Name.Name,
-					Docs: parseComments(d.Doc),
+					Docs: parseComments(d.Doc, 0),
 				}, Type: newType})
 			}
 		}
@@ -174,7 +205,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import) error {
 		fn := types.Function{
 			Base: types.Base{
 				Name: d.Name.Name,
-				Docs: parseComments(d.Doc),
+				Docs: parseComments(d.Doc, 0),
 			},
 		}
 		err := parseFuncParamsAndResults(d.Type, &fn, file, pp)
@@ -217,7 +248,7 @@ func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import) (vars
 		variable := types.Variable{
 			Base: types.Base{
 				Name: name.Name,
-				Docs: parseComments(decl.Doc),
+				Docs: parseComments(decl.Doc, 0),
 			},
 		}
 		var (
@@ -388,7 +419,7 @@ func parseFunction(funcField *ast.Field, file *types.File, pp *types.Import) (*t
 	fn := &types.Function{
 		Base: types.Base{
 			Name: funcField.Names[0].Name,
-			Docs: parseComments(funcField.Doc),
+			Docs: parseComments(funcField.Doc, 0),
 		},
 	}
 	funcType := funcField.Type.(*ast.FuncType)
@@ -427,7 +458,7 @@ func parseParams(fields *ast.FieldList, file *types.File, pp *types.Import) ([]t
 		if err != nil {
 			return nil, fmt.Errorf("wrong type of %s: %v", strings.Join(namesOfIdents(field.Names), ","), err)
 		}
-		docs := parseComments(field.Doc)
+		docs := parseComments(field.Doc, 0)
 		if len(field.Names) == 0 {
 			vars = append(vars, types.Variable{
 				Base: types.Base{
@@ -492,13 +523,13 @@ func parseStructFields(s *ast.StructType, file *types.File, pp *types.Import) ([
 func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
 	for _, imp := range file.Imports {
 		if imp.Name == alias {
-			return &imp, nil
+			return imp, nil
 		}
 	}
 	// try to find by last package path
 	for _, imp := range file.Imports {
 		if alias == path.Base(imp.Package) {
-			return &imp, nil
+			return imp, nil
 		}
 	}
 
