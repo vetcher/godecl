@@ -38,6 +38,10 @@ func yy(x ...[]*[]*map[*[]interface {
 }
 */
 
+type A struct {
+	List []A
+}
+
 type X string
 type Y int
 
