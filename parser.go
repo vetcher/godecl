@@ -290,7 +290,7 @@ func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import, opt O
 				return nil, fmt.Errorf("can't parse type: %v", err)
 			}
 		} else {
-			valType, err = parseByValue(spec.Values[i], file)
+			valType, err = parseByValue(spec.Values[i], file, pp, opt)
 			if err != nil {
 				return nil, fmt.Errorf("can't parse type: %v", err)
 			}
@@ -300,16 +300,6 @@ func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import, opt O
 		vars = append(vars, variable)
 	}
 	return
-}
-
-func setupImportIfNeed(tt types.Type, tImport *types.Import) types.Type {
-	if tImport == nil {
-		return tt
-	}
-	if types.IsBuiltinTypeString(tt.String()) {
-		return tt
-	}
-	return types.TImport{Import: tImport, Next: tt}
 }
 
 // Fill provided types.Type for cases, when variable's type is provided.
@@ -386,6 +376,8 @@ func parseByType(spec interface{}, file *types.File, pp *types.Import, opt Optio
 		return parseByType(t.X, file, pp, opt)
 	case *ast.BadExpr:
 		return nil, fmt.Errorf("bad expression")
+	case *ast.FuncType:
+		return parseFunction(t, file, pp, opt)
 	default:
 		return nil, fmt.Errorf("%v: %T", ErrUnexpectedSpec, t)
 	}
@@ -409,12 +401,12 @@ func parseArrayLen(t *ast.ArrayType) int {
 }
 
 // Fill provided types.Type for cases, when variable's value is provided.
-func parseByValue(spec interface{}, file *types.File) (tt types.Type, err error) {
+func parseByValue(spec interface{}, file *types.File, pp *types.Import, opt Option) (tt types.Type, err error) {
 	switch t := spec.(type) {
 	case *ast.BasicLit:
 		return types.TName{TypeName: t.Kind.String()}, nil
 	case *ast.CompositeLit:
-		return parseByValue(t.Type, file)
+		return parseByValue(t.Type, file, pp, opt)
 	case *ast.SelectorExpr:
 		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil {
@@ -424,6 +416,12 @@ func parseByValue(spec interface{}, file *types.File) (tt types.Type, err error)
 			return nil, fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
 		}
 		return types.TImport{Import: im}, nil
+	case *ast.FuncType:
+		fn, err := parseFunction(t, file, pp, opt)
+		if err != nil {
+			return nil, err
+		}
+		return fn, nil
 	default:
 		return nil, nil
 	}
@@ -434,7 +432,7 @@ func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File, pp *t
 	var fns []*types.Function
 	if ifaceType.Methods != nil {
 		for _, method := range ifaceType.Methods.List {
-			fn, err := parseFunction(method, file, pp, opt)
+			fn, err := parseFunctionDeclaration(method, file, pp, opt)
 			if err != nil {
 				return nil, err
 			}
@@ -444,14 +442,19 @@ func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File, pp *t
 	return fns, nil
 }
 
-func parseFunction(funcField *ast.Field, file *types.File, pp *types.Import, opt Option) (*types.Function, error) {
-	fn := &types.Function{
-		Base: types.Base{
-			Name: funcField.Names[0].Name,
-			Docs: parseComments(funcField.Doc, opt),
-		},
-	}
+func parseFunctionDeclaration(funcField *ast.Field, file *types.File, pp *types.Import, opt Option) (*types.Function, error) {
 	funcType := funcField.Type.(*ast.FuncType)
+	fn, err := parseFunction(funcType, file, pp, opt)
+	if err != nil {
+		return nil, err
+	}
+	fn.Base.Name = funcField.Names[0].Name
+	fn.Base.Docs = parseComments(funcField.Doc, opt)
+	return fn, nil
+}
+
+func parseFunction(funcType *ast.FuncType, file *types.File, pp *types.Import, opt Option) (*types.Function, error) {
+	fn := &types.Function{}
 	err := parseFuncParamsAndResults(funcType, fn, file, pp, opt)
 	if err != nil {
 		return nil, err
@@ -602,8 +605,18 @@ func findTypeByMethod(file *types.File, method *types.Method) (*types.FileType, 
 func IsCommonReciever(t types.Type) bool {
 	for tt := t; tt != nil; {
 		switch tt.TypeOf() {
-		case types.T_Array, types.T_Interface, types.T_Map, types.T_Import:
+		case types.T_Array, types.T_Interface, types.T_Map, types.T_Import, types.T_Func:
 			return false
+		case types.T_Pointer:
+			x, ok := tt.(types.TPointer)
+			if !ok {
+				// This code should be dead, but if it does not, then here is a bug in logic.
+				panic(fmt.Errorf("%s is of type Pointer, but really is %T", tt, tt))
+			}
+			if x.NumberOfPointers > 1 {
+				return false
+			}
+			tt = x.NextType()
 		default:
 			x, ok := tt.(types.LinearType)
 			if !ok {

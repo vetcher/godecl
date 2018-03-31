@@ -15,7 +15,8 @@ const (
 	T_Interface
 	T_Import
 	T_Ellipsis
-	T_CHAN
+	T_Chan
+	T_Func
 )
 
 type Type interface {
@@ -179,7 +180,7 @@ type TChan struct {
 }
 
 func (TChan) TypeOf() TypesOfTypes {
-	return T_CHAN
+	return T_Chan
 }
 
 func (c TChan) NextType() Type {

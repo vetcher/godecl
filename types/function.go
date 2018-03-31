@@ -35,6 +35,10 @@ func (f Function) GoString() string {
 	return f.String()
 }
 
+func (f Function) TypeOf() TypesOfTypes {
+	return T_Func
+}
+
 func (f Method) String() string {
 	return fmt.Sprintf("func (%s) %s", f.Receiver.String(), f.funcStr())
 }

@@ -39,7 +39,7 @@ func yy(x ...[]*[]*map[*[]interface {
 */
 
 type A struct {
-	List []A
+	List []func(string)string
 }
 
 type X string
