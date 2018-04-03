@@ -1,6 +1,7 @@
 package types
 
-var builtinTypes = map[string]bool{
+// List of all builtin types.
+var BuiltinTypes = map[string]bool{
 	"bool":       true,
 	"uint8":      true,
 	"uint16":     true,
@@ -23,7 +24,8 @@ var builtinTypes = map[string]bool{
 	"error":      true,
 }
 
-var builtinFunctions = map[string]bool{
+// List of all builtin functions.
+var BuiltinFunctions = map[string]bool{
 	"append":  true,
 	"copy":    true,
 	"delete":  true,
@@ -61,11 +63,11 @@ func IsBuiltin(t Type) bool {
 }
 
 func IsBuiltinTypeString(t string) bool {
-	return builtinTypes[t]
+	return BuiltinTypes[t]
 }
 
 func IsBuiltinFuncString(t string) bool {
-	return builtinFunctions[t]
+	return BuiltinFunctions[t]
 }
 
 func IsBuiltinString(t string) bool {

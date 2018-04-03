@@ -129,3 +129,10 @@ func namesOfIdents(idents []*ast.Ident) (res []string) {
 	}
 	return
 }
+
+func mergeStringSlices(slices ...[]string) []string {
+	if len(slices) == 0 {
+		return nil
+	}
+	return append(slices[0], mergeStringSlices(slices[1:]...)...)
+}

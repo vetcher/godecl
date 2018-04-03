@@ -31,6 +31,7 @@ const (
 	IgnoreTypes
 	IgnoreVariables
 	IgnoreConstants
+	AllowAnyImportAliases
 )
 
 func concatOptions(ops []Option) (o Option) {
@@ -129,7 +130,11 @@ func constructAliasName(spec *ast.ImportSpec) string {
 }
 
 func constructAliasNameString(str string) string {
-	return path.Base(strings.Trim(str, `"`))
+	name := path.Base(strings.Trim(str, `"`))
+	if types.BuiltinTypes[name] || types.BuiltinFunctions[name] {
+		name = "_" + name
+	}
+	return name
 }
 
 func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Option) error {
@@ -148,7 +153,11 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 				imp := &types.Import{
 					Base: types.Base{
 						Name: alias,
-						Docs: parseComments(spec.Doc, opt),
+						Docs: mergeStringSlices(
+							parseComments(d.Doc, opt),
+							parseComments(spec.Doc, opt),
+							parseComments(spec.Comment, opt),
+						),
 					},
 					Package: strings.Trim(spec.Path.Value, `"`),
 				}
@@ -157,7 +166,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 			}
 			file.Imports = append(file.Imports, imports...)
 		case token.VAR:
-			if opt.check(IgnoreVariables){
+			if opt.check(IgnoreVariables) {
 				return nil
 			}
 			vars, err := parseVariables(d, file, pp, opt)
@@ -166,7 +175,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 			}
 			file.Vars = append(file.Vars, vars...)
 		case token.CONST:
-			if opt.check(IgnoreConstants){
+			if opt.check(IgnoreConstants) {
 				return nil
 			}
 			consts, err := parseVariables(d, file, pp, opt)
@@ -175,50 +184,64 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 			}
 			file.Constants = append(file.Constants, consts...)
 		case token.TYPE:
-			typeSpec := d.Specs[0].(*ast.TypeSpec)
-			switch t := typeSpec.Type.(type) {
-			case *ast.InterfaceType:
-				if opt.check(IgnoreInterfaces) {
-					return nil
-				}
-				methods, err := parseInterfaceMethods(t, file, pp, opt)
-				if err != nil {
-					return err
-				}
-				file.Interfaces = append(file.Interfaces, types.Interface{
-					Base: types.Base{
+			for i := range d.Specs {
+				typeSpec := d.Specs[i].(*ast.TypeSpec)
+				switch t := typeSpec.Type.(type) {
+				case *ast.InterfaceType:
+					if opt.check(IgnoreInterfaces) {
+						return nil
+					}
+					methods, err := parseInterfaceMethods(t, file, pp, opt)
+					if err != nil {
+						return err
+					}
+					file.Interfaces = append(file.Interfaces, types.Interface{
+						Base: types.Base{
+							Name: typeSpec.Name.Name,
+							Docs: mergeStringSlices(
+								parseComments(d.Doc, opt),
+								parseComments(typeSpec.Doc, opt),
+								parseComments(typeSpec.Comment, opt),
+							),
+						},
+						Methods: methods,
+					})
+				case *ast.StructType:
+					if opt.check(IgnoreStructs) {
+						return nil
+					}
+					strFields, err := parseStructFields(t, file, pp, opt)
+					if err != nil {
+						return fmt.Errorf("%s: can't parse struct fields: %v", typeSpec.Name.Name, err)
+					}
+					file.Structures = append(file.Structures, types.Struct{
+						Base: types.Base{
+							Name: typeSpec.Name.Name,
+							Docs: mergeStringSlices(
+								parseComments(d.Doc, opt),
+								parseComments(typeSpec.Doc, opt),
+								parseComments(typeSpec.Comment, opt),
+							),
+						},
+						Fields: strFields,
+					})
+				default:
+					if opt.check(IgnoreTypes) {
+						return nil
+					}
+					newType, err := parseByType(typeSpec.Type, file, pp, opt)
+					if err != nil {
+						return fmt.Errorf("%s: can't parse type: %v", typeSpec.Name.Name, err)
+					}
+					file.Types = append(file.Types, types.FileType{Base: types.Base{
 						Name: typeSpec.Name.Name,
-						Docs: parseComments(d.Doc, opt),
-					},
-					Methods: methods,
-				})
-			case *ast.StructType:
-				if opt.check(IgnoreStructs) {
-					return nil
+						Docs: mergeStringSlices(
+							parseComments(d.Doc, opt),
+							parseComments(typeSpec.Doc, opt),
+							parseComments(typeSpec.Comment, opt),
+						),
+					}, Type: newType})
 				}
-				strFields, err := parseStructFields(t, file, pp, opt)
-				if err != nil {
-					return fmt.Errorf("%s: can't parse struct fields: %v", typeSpec.Name.Name, err)
-				}
-				file.Structures = append(file.Structures, types.Struct{
-					Base: types.Base{
-						Name: typeSpec.Name.Name,
-						Docs: parseComments(d.Doc, opt),
-					},
-					Fields: strFields,
-				})
-			default:
-				if opt.check(IgnoreTypes) {
-					return nil
-				}
-				newType, err := parseByType(typeSpec.Type, file, pp, opt)
-				if err != nil {
-					return fmt.Errorf("%s: can't parse type: %v", typeSpec.Name.Name, err)
-				}
-				file.Types = append(file.Types, types.FileType{Base: types.Base{
-					Name: typeSpec.Name.Name,
-					Docs: parseComments(d.Doc, opt),
-				}, Type: newType})
 			}
 		}
 	case *ast.FuncDecl:
@@ -269,35 +292,37 @@ func parseReceiver(list *ast.FieldList, file *types.File, pp *types.Import, opt 
 }
 
 func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import, opt Option) (vars []types.Variable, err error) {
-	spec := decl.Specs[0].(*ast.ValueSpec)
-	if len(spec.Values) > 0 && len(spec.Values) != len(spec.Names) {
-		return nil, fmt.Errorf("amount of variables and their values not same %d:%d", spec.Pos(), spec.End())
-	}
-	for i, name := range spec.Names {
-		variable := types.Variable{
-			Base: types.Base{
-				Name: name.Name,
-				Docs: parseComments(decl.Doc, opt),
-			},
+	for i := range decl.Specs {
+		spec := decl.Specs[i].(*ast.ValueSpec)
+		if len(spec.Values) > 0 && len(spec.Values) != len(spec.Names) {
+			return nil, fmt.Errorf("amount of variables and their values not same %d:%d", spec.Pos(), spec.End())
 		}
-		var (
-			valType types.Type
-			err     error
-		)
-		if spec.Type != nil {
-			valType, err = parseByType(spec.Type, file, pp, opt)
-			if err != nil {
-				return nil, fmt.Errorf("can't parse type: %v", err)
+		for i, name := range spec.Names {
+			variable := types.Variable{
+				Base: types.Base{
+					Name: name.Name,
+					Docs: mergeStringSlices(parseComments(decl.Doc, opt), parseComments(spec.Doc, opt), parseComments(spec.Comment, opt)),
+				},
 			}
-		} else {
-			valType, err = parseByValue(spec.Values[i], file, pp, opt)
-			if err != nil {
-				return nil, fmt.Errorf("can't parse type: %v", err)
+			var (
+				valType types.Type
+				err     error
+			)
+			if spec.Type != nil {
+				valType, err = parseByType(spec.Type, file, pp, opt)
+				if err != nil {
+					return nil, fmt.Errorf("can't parse type: %v", err)
+				}
+			} else {
+				valType, err = parseByValue(spec.Values[i], file, pp, opt)
+				if err != nil {
+					return nil, fmt.Errorf("can't parse type: %v", err)
+				}
 			}
-		}
 
-		variable.Type = valType
-		vars = append(vars, variable)
+			variable.Type = valType
+			vars = append(vars, variable)
+		}
 	}
 	return
 }
@@ -309,10 +334,10 @@ func parseByType(spec interface{}, file *types.File, pp *types.Import, opt Optio
 		return types.TName{TypeName: t.Name}, nil
 	case *ast.SelectorExpr:
 		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
-		if err != nil {
+		if err != nil && !opt.check(AllowAnyImportAliases) {
 			return nil, fmt.Errorf("%s: %v", t.Sel.Name, err)
 		}
-		if im == nil {
+		if im == nil && !opt.check(AllowAnyImportAliases) {
 			return nil, fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
 		}
 		return types.TImport{Import: im, Next: types.TName{TypeName: t.Sel.Name}}, nil
@@ -409,10 +434,10 @@ func parseByValue(spec interface{}, file *types.File, pp *types.Import, opt Opti
 		return parseByValue(t.Type, file, pp, opt)
 	case *ast.SelectorExpr:
 		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
-		if err != nil {
+		if err != nil && !opt.check(AllowAnyImportAliases) {
 			return nil, fmt.Errorf("%s: %v", t.Sel.Name, err)
 		}
-		if im == nil {
+		if im == nil && !opt.check(AllowAnyImportAliases) {
 			return nil, fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
 		}
 		return types.TImport{Import: im}, nil
