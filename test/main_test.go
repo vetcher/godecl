@@ -2,7 +2,6 @@ package test
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"io/ioutil"
@@ -17,18 +16,6 @@ const (
 	result    = "result.json"
 	assetsDir = "assets"
 )
-
-func TestParser(t *testing.T) {
-	info, err := godecl.ParseFile("service.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	bytes, err := json.MarshalIndent(info, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println(string(bytes))
-}
 
 type AstraTest struct {
 	Name string `json:"name"`
