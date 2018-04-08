@@ -66,6 +66,10 @@ func FunctionOne(a string, b interface{}, c map[string]interface{}) (ctx context
 	return nil, nil
 }
 
+func FunctionTwo(f func(string, func() error)) {
+	return
+}
+
 func (m StructTwo) MethodOne() string {
 	return fmt.Sprint(m)
 }

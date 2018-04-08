@@ -25,11 +25,7 @@ func ParseFile(filename string) (*types.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error when parse file: %v", err)
 	}
-	pp, err := ResolvePackagePath(filename)
-	if err != nil {
-		return nil, err
-	}
-	info, err := ParseAstFile(tree, pp)
+	info, err := ParseAstFile(tree)
 	if err != nil {
 		return nil, fmt.Errorf("error when parsing info from file: %v", err)
 	}
@@ -46,7 +42,7 @@ func ParseFileWithoutGOPATH(filename string) (*types.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error when parse file: %v", err)
 	}
-	info, err := ParseAstFile(tree, "")
+	info, err := ParseAstFile(tree)
 	if err != nil {
 		return nil, fmt.Errorf("error when parsing info from file %s: %v", filename, err)
 	}
@@ -135,4 +131,12 @@ func mergeStringSlices(slices ...[]string) []string {
 		return nil
 	}
 	return append(slices[0], mergeStringSlices(slices[1:]...)...)
+}
+
+func parseCommentFromSources(opt Option, groups ...*ast.CommentGroup) []string {
+	temp := make([][]string, len(groups))
+	for i := range groups {
+		temp[i] = parseComments(groups[i], opt)
+	}
+	return mergeStringSlices(temp...)
 }

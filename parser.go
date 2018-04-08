@@ -46,7 +46,7 @@ func (o Option) check(what Option) bool {
 }
 
 // Parses ast.File and return all top-level declarations.
-func ParseAstFile(file *ast.File, packagePath string, options ...Option) (*types.File, error) {
+func ParseAstFile(file *ast.File, options ...Option) (*types.File, error) {
 	opt := concatOptions(options)
 	f := &types.File{
 		Base: types.Base{
@@ -54,19 +54,7 @@ func ParseAstFile(file *ast.File, packagePath string, options ...Option) (*types
 			Docs: parseComments(file.Doc, opt),
 		},
 	}
-	var pp *types.Import
-	if packagePath != "" {
-		alias := constructAliasNameString(packagePath)
-		imp := &types.Import{
-			Base: types.Base{
-				Name: alias,
-			},
-			Package: strings.Trim(packagePath, `"`),
-		}
-		f.Imports = append(f.Imports, imp)
-		pp = imp
-	}
-	err := parseTopLevelDeclarations(file.Decls, f, pp, opt)
+	err := parseTopLevelDeclarations(file.Decls, f, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -112,9 +100,9 @@ func parseComments(group *ast.CommentGroup, o Option) (comments []string) {
 	return
 }
 
-func parseTopLevelDeclarations(decls []ast.Decl, file *types.File, pp *types.Import, opt Option) error {
+func parseTopLevelDeclarations(decls []ast.Decl, file *types.File, opt Option) error {
 	for i := range decls {
-		err := parseDeclaration(decls[i], file, pp, opt)
+		err := parseDeclaration(decls[i], file, opt)
 		if err != nil {
 			return err
 		}
@@ -137,7 +125,7 @@ func constructAliasNameString(str string) string {
 	return name
 }
 
-func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Option) error {
+func parseDeclaration(decl ast.Decl, file *types.File, opt Option) error {
 	switch d := decl.(type) {
 	case *ast.GenDecl:
 		switch d.Tok {
@@ -153,11 +141,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 				imp := &types.Import{
 					Base: types.Base{
 						Name: alias,
-						Docs: mergeStringSlices(
-							parseComments(d.Doc, opt),
-							parseComments(spec.Doc, opt),
-							parseComments(spec.Comment, opt),
-						),
+						Docs: parseCommentFromSources(opt, d.Doc, spec.Doc, spec.Comment),
 					},
 					Package: strings.Trim(spec.Path.Value, `"`),
 				}
@@ -169,7 +153,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 			if opt.check(IgnoreVariables) {
 				return nil
 			}
-			vars, err := parseVariables(d, file, pp, opt)
+			vars, err := parseVariables(d, file, opt)
 			if err != nil {
 				return fmt.Errorf("parse variables %d:%d error: %v", d.Lparen, d.Rparen, err)
 			}
@@ -178,7 +162,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 			if opt.check(IgnoreConstants) {
 				return nil
 			}
-			consts, err := parseVariables(d, file, pp, opt)
+			consts, err := parseVariables(d, file, opt)
 			if err != nil {
 				return fmt.Errorf("parse constants %d:%d error: %v", d.Lparen, d.Rparen, err)
 			}
@@ -191,37 +175,30 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 					if opt.check(IgnoreInterfaces) {
 						return nil
 					}
-					methods, err := parseInterfaceMethods(t, file, pp, opt)
+					methods, embedded, err := parseInterfaceMethods(t, file, opt)
 					if err != nil {
 						return err
 					}
 					file.Interfaces = append(file.Interfaces, types.Interface{
 						Base: types.Base{
 							Name: typeSpec.Name.Name,
-							Docs: mergeStringSlices(
-								parseComments(d.Doc, opt),
-								parseComments(typeSpec.Doc, opt),
-								parseComments(typeSpec.Comment, opt),
-							),
+							Docs: parseCommentFromSources(opt, d.Doc, typeSpec.Doc, typeSpec.Comment),
 						},
-						Methods: methods,
+						Methods:    methods,
+						Interfaces: embedded,
 					})
 				case *ast.StructType:
 					if opt.check(IgnoreStructs) {
 						return nil
 					}
-					strFields, err := parseStructFields(t, file, pp, opt)
+					strFields, err := parseStructFields(t, file, opt)
 					if err != nil {
 						return fmt.Errorf("%s: can't parse struct fields: %v", typeSpec.Name.Name, err)
 					}
 					file.Structures = append(file.Structures, types.Struct{
 						Base: types.Base{
 							Name: typeSpec.Name.Name,
-							Docs: mergeStringSlices(
-								parseComments(d.Doc, opt),
-								parseComments(typeSpec.Doc, opt),
-								parseComments(typeSpec.Comment, opt),
-							),
+							Docs: parseCommentFromSources(opt, d.Doc, typeSpec.Doc, typeSpec.Comment),
 						},
 						Fields: strFields,
 					})
@@ -229,17 +206,13 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 					if opt.check(IgnoreTypes) {
 						return nil
 					}
-					newType, err := parseByType(typeSpec.Type, file, pp, opt)
+					newType, err := parseByType(typeSpec.Type, file, opt)
 					if err != nil {
 						return fmt.Errorf("%s: can't parse type: %v", typeSpec.Name.Name, err)
 					}
 					file.Types = append(file.Types, types.FileType{Base: types.Base{
 						Name: typeSpec.Name.Name,
-						Docs: mergeStringSlices(
-							parseComments(d.Doc, opt),
-							parseComments(typeSpec.Doc, opt),
-							parseComments(typeSpec.Comment, opt),
-						),
+						Docs: parseCommentFromSources(opt, d.Doc, typeSpec.Doc, typeSpec.Comment),
 					}, Type: newType})
 				}
 			}
@@ -249,12 +222,13 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 			return nil
 		}
 		fn := types.Function{
+			Kind: types.KindFunc,
 			Base: types.Base{
 				Name: d.Name.Name,
 				Docs: parseComments(d.Doc, opt),
 			},
 		}
-		err := parseFuncParamsAndResults(d.Type, &fn, file, pp, opt)
+		err := parseFuncParamsAndResults(d.Type, &fn, file, opt)
 		if err != nil {
 			return fmt.Errorf("parse func %s error: %v", fn.Name, err)
 		}
@@ -262,7 +236,7 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 			if opt.check(IgnoreMethods) {
 				return nil
 			}
-			rec, err := parseReceiver(d.Recv, file, pp, opt)
+			rec, err := parseReceiver(d.Recv, file, opt)
 			if err != nil {
 				return err
 			}
@@ -280,8 +254,8 @@ func parseDeclaration(decl ast.Decl, file *types.File, pp *types.Import, opt Opt
 	return nil
 }
 
-func parseReceiver(list *ast.FieldList, file *types.File, pp *types.Import, opt Option) (*types.Variable, error) {
-	recv, err := parseParams(list, file, pp, opt)
+func parseReceiver(list *ast.FieldList, file *types.File, opt Option) (*types.Variable, error) {
+	recv, err := parseParams(list, file, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +265,7 @@ func parseReceiver(list *ast.FieldList, file *types.File, pp *types.Import, opt 
 	return nil, fmt.Errorf("reciever not found for %d:%d", list.Pos(), list.End())
 }
 
-func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import, opt Option) (vars []types.Variable, err error) {
+func parseVariables(decl *ast.GenDecl, file *types.File, opt Option) (vars []types.Variable, err error) {
 	for i := range decl.Specs {
 		spec := decl.Specs[i].(*ast.ValueSpec)
 		if len(spec.Values) > 0 && len(spec.Values) != len(spec.Names) {
@@ -301,7 +275,8 @@ func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import, opt O
 			variable := types.Variable{
 				Base: types.Base{
 					Name: name.Name,
-					Docs: mergeStringSlices(parseComments(decl.Doc, opt), parseComments(spec.Doc, opt), parseComments(spec.Comment, opt)),
+					Docs: parseCommentFromSources(opt, decl.Doc, spec.Doc, spec.Comment),
+					//Docs: mergeStringSlices(parseComments(decl.Doc, opt), parseComments(spec.Doc, opt), parseComments(spec.Comment, opt)),
 				},
 			}
 			var (
@@ -309,12 +284,12 @@ func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import, opt O
 				err     error
 			)
 			if spec.Type != nil {
-				valType, err = parseByType(spec.Type, file, pp, opt)
+				valType, err = parseByType(spec.Type, file, opt)
 				if err != nil {
 					return nil, fmt.Errorf("can't parse type: %v", err)
 				}
 			} else {
-				valType, err = parseByValue(spec.Values[i], file, pp, opt)
+				valType, err = parseByValue(spec.Values[i], file, opt)
 				if err != nil {
 					return nil, fmt.Errorf("can't parse type: %v", err)
 				}
@@ -327,11 +302,10 @@ func parseVariables(decl *ast.GenDecl, file *types.File, pp *types.Import, opt O
 	return
 }
 
-// Fill provided types.Type for cases, when variable's type is provided.
-func parseByType(spec interface{}, file *types.File, pp *types.Import, opt Option) (tt types.Type, err error) {
+func parseByType(spec interface{}, file *types.File, opt Option) (tt types.Type, err error) {
 	switch t := spec.(type) {
 	case *ast.Ident:
-		return types.TName{TypeName: t.Name}, nil
+		return types.TName{Kind: types.KindName, TypeName: t.Name}, nil
 	case *ast.SelectorExpr:
 		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil && !opt.check(AllowAnyImportAliases) {
@@ -340,69 +314,75 @@ func parseByType(spec interface{}, file *types.File, pp *types.Import, opt Optio
 		if im == nil && !opt.check(AllowAnyImportAliases) {
 			return nil, fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
 		}
-		return types.TImport{Import: im, Next: types.TName{TypeName: t.Sel.Name}}, nil
+		return types.TImport{Kind: types.KindImport, Import: im, Next: types.TName{TypeName: t.Sel.Name}}, nil
 	case *ast.StarExpr:
-		next, err := parseByType(t.X, file, pp, opt)
+		next, err := parseByType(t.X, file, opt)
 		if err != nil {
 			return nil, err
 		}
-		if next.TypeOf() == types.T_Pointer {
-			return types.TPointer{Next: next.(types.TPointer).NextType(), NumberOfPointers: 1 + next.(types.TPointer).NumberOfPointers}, nil
+		if next.TypeOf() == types.KindPointer {
+			return types.TPointer{
+				Kind:             types.KindPointer,
+				Next:             next.(types.TPointer).NextType(),
+				NumberOfPointers: 1 + next.(types.TPointer).NumberOfPointers,
+			}, nil
 		}
-		return types.TPointer{Next: next, NumberOfPointers: 1}, nil
+		return types.TPointer{Kind: types.KindPointer, Next: next, NumberOfPointers: 1}, nil
 	case *ast.ArrayType:
 		l := parseArrayLen(t)
-		next, err := parseByType(t.Elt, file, pp, opt)
+		next, err := parseByType(t.Elt, file, opt)
 		if err != nil {
 			return nil, err
 		}
 		switch l {
 		case -3, -2:
-			return types.TArray{Next: next, IsSlice: true}, nil
+			return types.TArray{Kind: types.KindArray, Next: next, IsSlice: true}, nil
 		case -1:
-			return types.TArray{Next: next, IsEllipsis: true}, nil
+			return types.TArray{Kind: types.KindArray, Next: next, IsEllipsis: true}, nil
 		default:
-			return types.TArray{Next: next, ArrayLen: l}, nil
+			return types.TArray{Kind: types.KindArray, Next: next, ArrayLen: l}, nil
 		}
 	case *ast.MapType:
-		key, err := parseByType(t.Key, file, pp, opt)
+		key, err := parseByType(t.Key, file, opt)
 		if err != nil {
 			return nil, err
 		}
-		value, err := parseByType(t.Value, file, pp, opt)
+		value, err := parseByType(t.Value, file, opt)
 		if err != nil {
 			return nil, err
 		}
-		return types.TMap{Key: key, Value: value}, nil
+		return types.TMap{Kind: types.KindMap, Key: key, Value: value}, nil
 	case *ast.InterfaceType:
-		methods, err := parseInterfaceMethods(t, file, pp, opt)
+		methods, embedded, err := parseInterfaceMethods(t, file, opt)
 		if err != nil {
 			return nil, err
 		}
 		return types.TInterface{
+			Kind: types.KindInterface,
 			Interface: &types.Interface{
-				Base:    types.Base{},
-				Methods: methods,
+				Base:       types.Base{},
+				Methods:    methods,
+				Interfaces: embedded,
 			},
 		}, nil
 	case *ast.Ellipsis:
-		next, err := parseByType(t.Elt, file, pp, opt)
+		next, err := parseByType(t.Elt, file, opt)
 		if err != nil {
 			return nil, err
 		}
-		return types.TEllipsis{Next: next}, nil
+		return types.TEllipsis{Kind: types.KindEllipsis, Next: next}, nil
 	case *ast.ChanType:
-		next, err := parseByType(t.Value, file, pp, opt)
+		next, err := parseByType(t.Value, file, opt)
 		if err != nil {
 			return nil, err
 		}
-		return types.TChan{Next: next, Direction: int(t.Dir)}, nil
+		return types.TChan{Kind: types.KindChan, Next: next, Direction: int(t.Dir)}, nil
 	case *ast.ParenExpr:
-		return parseByType(t.X, file, pp, opt)
+		return parseByType(t.X, file, opt)
 	case *ast.BadExpr:
 		return nil, fmt.Errorf("bad expression")
 	case *ast.FuncType:
-		return parseFunction(t, file, pp, opt)
+		return parseFunction(t, file, opt)
 	default:
 		return nil, fmt.Errorf("%v: %T", ErrUnexpectedSpec, t)
 	}
@@ -426,12 +406,12 @@ func parseArrayLen(t *ast.ArrayType) int {
 }
 
 // Fill provided types.Type for cases, when variable's value is provided.
-func parseByValue(spec interface{}, file *types.File, pp *types.Import, opt Option) (tt types.Type, err error) {
+func parseByValue(spec interface{}, file *types.File, opt Option) (tt types.Type, err error) {
 	switch t := spec.(type) {
 	case *ast.BasicLit:
-		return types.TName{TypeName: t.Kind.String()}, nil
+		return types.TName{Kind: types.KindName, TypeName: t.Kind.String()}, nil
 	case *ast.CompositeLit:
-		return parseByValue(t.Type, file, pp, opt)
+		return parseByValue(t.Type, file, opt)
 	case *ast.SelectorExpr:
 		im, err := findImportByAlias(file, t.X.(*ast.Ident).Name)
 		if err != nil && !opt.check(AllowAnyImportAliases) {
@@ -440,9 +420,9 @@ func parseByValue(spec interface{}, file *types.File, pp *types.Import, opt Opti
 		if im == nil && !opt.check(AllowAnyImportAliases) {
 			return nil, fmt.Errorf("wrong import %d:%d", t.Pos(), t.End())
 		}
-		return types.TImport{Import: im}, nil
+		return types.TImport{Kind: types.KindImport, Import: im}, nil
 	case *ast.FuncType:
-		fn, err := parseFunction(t, file, pp, opt)
+		fn, err := parseFunction(t, file, opt)
 		if err != nil {
 			return nil, err
 		}
@@ -453,47 +433,71 @@ func parseByValue(spec interface{}, file *types.File, pp *types.Import, opt Opti
 }
 
 // Collects and returns all interface methods.
-func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File, pp *types.Import, opt Option) ([]*types.Function, error) {
-	var fns []*types.Function
+// https://golang.org/ref/spec#Interface_types
+func parseInterfaceMethods(ifaceType *ast.InterfaceType, file *types.File, opt Option) ([]*types.Function, []types.Variable, error) {
+	var (
+		fns      []*types.Function
+		embedded []types.Variable
+	)
 	if ifaceType.Methods != nil {
 		for _, method := range ifaceType.Methods.List {
-			fn, err := parseFunctionDeclaration(method, file, pp, opt)
-			if err != nil {
-				return nil, err
+			switch method.Type.(type) {
+			case *ast.FuncType:
+				// Functions (methods)
+				fn, err := parseFunctionDeclaration(method, file, opt)
+				if err != nil {
+					return nil, nil, err
+				}
+				fns = append(fns, fn)
+			case *ast.Ident:
+				// Embedded interfaces
+				iface, err := parseByType(method.Type, file, opt)
+				if err != nil {
+					return nil, nil, err
+				}
+				v := types.Variable{
+					Base: types.Base{
+						Name: "", // Because we embed interface.
+						Docs: parseCommentFromSources(opt, method.Doc, method.Comment),
+					},
+					Type: iface,
+				}
+				embedded = append(embedded, v)
 			}
-			fns = append(fns, fn)
 		}
 	}
-	return fns, nil
+	return fns, embedded, nil
 }
 
-func parseFunctionDeclaration(funcField *ast.Field, file *types.File, pp *types.Import, opt Option) (*types.Function, error) {
+func parseFunctionDeclaration(funcField *ast.Field, file *types.File, opt Option) (*types.Function, error) {
 	funcType := funcField.Type.(*ast.FuncType)
-	fn, err := parseFunction(funcType, file, pp, opt)
+	fn, err := parseFunction(funcType, file, opt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %v", funcField.Names[0].Name, err)
 	}
 	fn.Base.Name = funcField.Names[0].Name
 	fn.Base.Docs = parseComments(funcField.Doc, opt)
 	return fn, nil
 }
 
-func parseFunction(funcType *ast.FuncType, file *types.File, pp *types.Import, opt Option) (*types.Function, error) {
-	fn := &types.Function{}
-	err := parseFuncParamsAndResults(funcType, fn, file, pp, opt)
+func parseFunction(funcType *ast.FuncType, file *types.File, opt Option) (*types.Function, error) {
+	fn := &types.Function{
+		Kind: types.KindFunc,
+	}
+	err := parseFuncParamsAndResults(funcType, fn, file, opt)
 	if err != nil {
 		return nil, err
 	}
 	return fn, nil
 }
 
-func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file *types.File, pp *types.Import, opt Option) error {
-	args, err := parseParams(funcType.Params, file, pp, opt)
+func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file *types.File, opt Option) error {
+	args, err := parseParams(funcType.Params, file, opt)
 	if err != nil {
 		return fmt.Errorf("can't parse args: %v", err)
 	}
 	fn.Args = args
-	results, err := parseParams(funcType.Results, file, pp, opt)
+	results, err := parseParams(funcType.Results, file, opt)
 	if err != nil {
 		return fmt.Errorf("can't parse results: %v", err)
 	}
@@ -502,7 +506,7 @@ func parseFuncParamsAndResults(funcType *ast.FuncType, fn *types.Function, file 
 }
 
 // Collects and returns all args/results from function or fields from structure.
-func parseParams(fields *ast.FieldList, file *types.File, pp *types.Import, opt Option) ([]types.Variable, error) {
+func parseParams(fields *ast.FieldList, file *types.File, opt Option) ([]types.Variable, error) {
 	var vars []types.Variable
 	if fields == nil {
 		return vars, nil
@@ -511,7 +515,7 @@ func parseParams(fields *ast.FieldList, file *types.File, pp *types.Import, opt 
 		if field.Type == nil {
 			return nil, fmt.Errorf("param's type is nil %d:%d", field.Pos(), field.End())
 		}
-		t, err := parseByType(field.Type, file, pp, opt)
+		t, err := parseByType(field.Type, file, opt)
 		if err != nil {
 			return nil, fmt.Errorf("wrong type of %s: %v", strings.Join(namesOfIdents(field.Names), ","), err)
 		}
@@ -555,8 +559,8 @@ func parseTags(lit *ast.BasicLit) (tags map[string][]string, raw string) {
 	return
 }
 
-func parseStructFields(s *ast.StructType, file *types.File, pp *types.Import, opt Option) ([]types.StructField, error) {
-	fields, err := parseParams(s.Fields, file, pp, opt)
+func parseStructFields(s *ast.StructType, file *types.File, opt Option) ([]types.StructField, error) {
+	fields, err := parseParams(s.Fields, file, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -595,7 +599,7 @@ func findImportByAlias(file *types.File, alias string) (*types.Import, error) {
 
 func findStructByMethod(file *types.File, method *types.Method) (*types.Struct, error) {
 	recType := method.Receiver.Type
-	if !IsCommonReciever(recType) {
+	if !IsCommonReceiver(recType) {
 		return nil, fmt.Errorf("%s has not common reciever", method.String())
 	}
 	name := types.TypeName(recType)
@@ -612,7 +616,7 @@ func findStructByMethod(file *types.File, method *types.Method) (*types.Struct, 
 
 func findTypeByMethod(file *types.File, method *types.Method) (*types.FileType, error) {
 	recType := method.Receiver.Type
-	if !IsCommonReciever(recType) {
+	if !IsCommonReceiver(recType) {
 		return nil, fmt.Errorf("%s has not common reciever", method.String())
 	}
 	name := types.TypeName(recType)
@@ -627,12 +631,12 @@ func findTypeByMethod(file *types.File, method *types.Method) (*types.FileType, 
 	return nil, nil
 }
 
-func IsCommonReciever(t types.Type) bool {
+func IsCommonReceiver(t types.Type) bool {
 	for tt := t; tt != nil; {
 		switch tt.TypeOf() {
-		case types.T_Array, types.T_Interface, types.T_Map, types.T_Import, types.T_Func:
+		case types.KindArray, types.KindInterface, types.KindMap, types.KindImport, types.KindFunc:
 			return false
-		case types.T_Pointer:
+		case types.KindPointer:
 			x, ok := tt.(types.TPointer)
 			if !ok {
 				// This code should be dead, but if it does not, then here is a bug in logic.

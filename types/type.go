@@ -5,22 +5,24 @@ import (
 	"strings"
 )
 
-type TypesOfTypes int32
+//go:generate stringer -type=Kind
+
+type Kind int32
 
 const (
-	T_Name TypesOfTypes = iota
-	T_Pointer
-	T_Array
-	T_Map
-	T_Interface
-	T_Import
-	T_Ellipsis
-	T_Chan
-	T_Func
+	KindName Kind = iota
+	KindPointer
+	KindArray
+	KindMap
+	KindInterface
+	KindImport
+	KindEllipsis
+	KindChan
+	KindFunc
 )
 
 type Type interface {
-	TypeOf() TypesOfTypes
+	TypeOf() Kind
 	String() string
 }
 
@@ -29,11 +31,12 @@ type LinearType interface {
 }
 
 type TInterface struct {
+	Kind      Kind       `json:"kind"`
 	Interface *Interface `json:"interface,omitempty"`
 }
 
-func (TInterface) TypeOf() TypesOfTypes {
-	return T_Interface
+func (i TInterface) TypeOf() Kind {
+	return i.Kind
 }
 
 func (i TInterface) String() string {
@@ -44,12 +47,13 @@ func (i TInterface) String() string {
 }
 
 type TMap struct {
+	Kind  Kind `json:"kind"`
 	Key   Type `json:"key,omitempty"`
 	Value Type `json:"value,omitempty"`
 }
 
-func (TMap) TypeOf() TypesOfTypes {
-	return T_Map
+func (m TMap) TypeOf() Kind {
+	return m.Kind
 }
 
 func (m TMap) String() string {
@@ -57,11 +61,12 @@ func (m TMap) String() string {
 }
 
 type TName struct {
+	Kind     Kind   `json:"kind"`
 	TypeName string `json:"type_name,omitempty"`
 }
 
-func (TName) TypeOf() TypesOfTypes {
-	return T_Name
+func (i TName) TypeOf() Kind {
+	return i.Kind
 }
 
 func (i TName) String() string {
@@ -73,12 +78,13 @@ func (i TName) NextType() Type {
 }
 
 type TPointer struct {
+	Kind             Kind `json:"kind"`
 	NumberOfPointers int  `json:"number_of_pointers,omitempty"`
 	Next             Type `json:"next,omitempty"`
 }
 
-func (TPointer) TypeOf() TypesOfTypes {
-	return T_Pointer
+func (i TPointer) TypeOf() Kind {
+	return i.Kind
 }
 
 func (i TPointer) String() string {
@@ -94,14 +100,15 @@ func (i TPointer) NextType() Type {
 }
 
 type TArray struct {
+	Kind       Kind `json:"kind"`
 	ArrayLen   int  `json:"array_len,omitempty"`
 	IsSlice    bool `json:"is_slice,omitempty"` // [] declaration
 	IsEllipsis bool `json:"is_ellipsis,omitempty"`
 	Next       Type `json:"next,omitempty"`
 }
 
-func (TArray) TypeOf() TypesOfTypes {
-	return T_Array
+func (i TArray) TypeOf() Kind {
+	return i.Kind
 }
 
 func (i TArray) String() string {
@@ -124,12 +131,13 @@ func (i TArray) NextType() Type {
 }
 
 type TImport struct {
+	Kind   Kind    `json:"kind"`
 	Import *Import `json:"import,omitempty"`
 	Next   Type    `json:"next,omitempty"`
 }
 
-func (TImport) TypeOf() TypesOfTypes {
-	return T_Import
+func (i TImport) TypeOf() Kind {
+	return i.Kind
 }
 
 func (i TImport) String() string {
@@ -149,11 +157,12 @@ func (i TImport) NextType() Type {
 
 // TEllipsis used only for function params in declarations like `strs ...string`
 type TEllipsis struct {
+	Kind Kind `json:"kind"`
 	Next Type `json:"next,omitempty"`
 }
 
-func (TEllipsis) TypeOf() TypesOfTypes {
-	return T_Ellipsis
+func (i TEllipsis) TypeOf() Kind {
+	return i.Kind
 }
 
 func (i TEllipsis) String() string {
@@ -175,12 +184,13 @@ const (
 )
 
 type TChan struct {
-	Direction int
-	Next      Type
+	Kind      Kind `json:"kind"`
+	Direction int  `json:"direction"`
+	Next      Type `json:"next"`
 }
 
-func (TChan) TypeOf() TypesOfTypes {
-	return T_Chan
+func (c TChan) TypeOf() Kind {
+	return c.Kind
 }
 
 func (c TChan) NextType() Type {

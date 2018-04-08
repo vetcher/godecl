@@ -2,5 +2,9 @@
   {
     "name": "full",
     "path": "full"
+  },
+  {
+    "name": "interfaces",
+    "path": "interfaces"
   }
 ]

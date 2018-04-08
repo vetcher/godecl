@@ -45,7 +45,7 @@ var BuiltinFunctions = map[string]bool{
 
 // Checks is type is builtin type.
 func IsBuiltin(t Type) bool {
-	if t.TypeOf() != T_Name {
+	if t.TypeOf() != KindName {
 		return false
 	}
 	for {
