@@ -21,6 +21,7 @@ var (
 )
 
 // Parses ast.File and return all top-level declarations.
+// Deprecated: use https://github.com/Vetcher/go-astra instead.
 func ParseAstFile(file *ast.File, packagePath string) (*types.File, error) {
 	f := &types.File{
 		Base: types.Base{
@@ -539,6 +540,7 @@ func findTypeByMethod(file *types.File, method *types.Method) (*types.FileType, 
 	return nil, nil
 }
 
+// Deprecated: use https://github.com/Vetcher/go-astra instead.
 func IsCommonReciever(t types.Type) bool {
 	for tt := t; tt != nil; {
 		switch tt.TypeOf() {

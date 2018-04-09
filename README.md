@@ -1,3 +1,5 @@
+## godecl is Deprecated: use [go-astra](https://github.com/Vetcher/go-astra) instead.
+
 # godecl
 Package to grub information about go file.
 

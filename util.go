@@ -13,6 +13,7 @@ import (
 )
 
 // Opens and parses file by name and return information about it.
+// Deprecated: use https://github.com/Vetcher/go-astra instead.
 func ParseFile(filename string) (*types.File, error) {
 	path, err := filepath.Abs(filename)
 	if err != nil {
@@ -34,6 +35,7 @@ func ParseFile(filename string) (*types.File, error) {
 	return info, nil
 }
 
+// Deprecated: use https://github.com/Vetcher/go-astra instead.
 func ParseFileWithoutGOPATH(filename string) (*types.File, error) {
 	path, err := filepath.Abs(filename)
 	if err != nil {
@@ -51,14 +53,17 @@ func ParseFileWithoutGOPATH(filename string) (*types.File, error) {
 	return info, nil
 }
 
+// Deprecated: use https://github.com/Vetcher/go-astra instead.
 func MergeFiles(files []*types.File) (*types.Type, error) {
 	return nil, nil
 }
 
+// Deprecated: use https://github.com/Vetcher/go-astra instead.
 func ParsePackage(path string) ([]*types.File, error) {
 	return nil, nil
 }
 
+// Deprecated: use https://github.com/Vetcher/go-astra instead.
 func ResolvePackagePath(outPath string) (string, error) {
 	gopath := os.Getenv("GOPATH")
 	if gopath == "" {
